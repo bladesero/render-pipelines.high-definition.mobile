@@ -9,6 +9,7 @@
 #pragma shader_feature_local _DOUBLESIDED_ON
 #pragma shader_feature_local _NORMALMAP
 #pragma shader_feature_local _MASKMAP
+#pragma shader_feature_local _DETAIL_MAP
 #pragma shader_feature_local _EMISSIVE_COLOR_MAP
 #pragma shader_feature _SURFACE_TYPE_TRANSPARENT
 #include "MobileMaterial.hlsl"

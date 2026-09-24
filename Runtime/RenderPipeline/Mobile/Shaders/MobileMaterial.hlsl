@@ -26,6 +26,7 @@ struct MobileVaryings
     float4 tangentWS : TEXCOORD2;
     float2 uv : TEXCOORD3;
     float2 lightmapUV : TEXCOORD4;
+    float2 detailUV : TEXCOORD5;
     UNITY_VERTEX_INPUT_INSTANCE_ID
 };
 
@@ -53,6 +54,7 @@ MobileVaryings MobileVert(MobileAttributes input)
     #endif
 #endif
     output.uv = input.uv;
+    output.detailUV = input.lightmapUV;
     output.lightmapUV = input.lightmapUV * unity_LightmapST.xy + unity_LightmapST.zw;
     return output;
 }
@@ -90,9 +92,31 @@ float3 MobileBaked(float2 uv, half3 normal)
     #endif
     return lighting;
 #else
+    if (_MobileEnvironmentParams.x > 0 && _MobileEnvironmentParams.y < 0.5)
+        return SAMPLE_TEXTURECUBE_LOD(_MobileEnvironmentDiffuse, sampler_MobileEnvironmentDiffuse, normal, 0).rgb * _MobileEnvironmentParams.w;
     float4 coefficients[7] = { unity_SHAr, unity_SHAg, unity_SHAb, unity_SHBr, unity_SHBg, unity_SHBb, unity_SHC };
     return max(0, SampleSH9(coefficients, normal));
 #endif
+}
+
+float3 MobileBoxDirection(float3 direction, float3 position, float4 probePosition, float4 boxMin, float4 boxMax)
+{
+    if (probePosition.w <= 0) return direction;
+    float3 safeDirection = (direction >= 0 ? 1 : -1) * max(abs(direction), 1e-6);
+    float3 distance = ((direction > 0 ? boxMax.xyz : boxMin.xyz) - position) / safeDirection;
+    return position - probePosition.xyz + direction * min(distance.x, min(distance.y, distance.z));
+}
+
+float MobileEnvironmentProbeWeight(float3 position, float4 boxMin, float4 boxMax)
+{
+    // Default sky bindings have no finite influence box. Never detect validity by
+    // sampled brightness: a black local probe can be intentional (e.g. an interior).
+    // Unity's default sky probe uses an effectively infinite AABB. It is not a
+    // local probe and must leave its contribution to our environment cache.
+    if (any(abs(boxMax.xyz) > 1e19) || any(abs(boxMin.xyz) > 1e19) || any(boxMax.xyz <= boxMin.xyz)) return 0;
+    float3 distances = min(position - boxMin.xyz, boxMax.xyz - position);
+    float distance = min(distances.x, min(distances.y, distances.z));
+    return boxMax.w > 0 ? saturate(distance / boxMax.w) : (distance >= 0 ? 1 : 0);
 }
 
 half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SEMANTIC) : SV_Target
@@ -127,7 +151,7 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
         emission *= lerp(half3(1, 1, 1), color.rgb, _AlbedoAffectEmissive);
         half3 n = input.normalWS;
         half3 normalTS = half3(0, 0, 1);
-        #if defined(_NORMALMAP)
+        #if defined(_NORMALMAP) || defined(_DETAIL_MAP)
             half3 t = input.tangentWS.xyz;
             // Missing/parallel tangents have no meaningful UV frame. Use a stable
             // orthogonal frame instead of normalizing zero (also safe for skinned meshes).
@@ -135,12 +159,30 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
                 t = SafeNormalize(cross(abs(n.z) < 0.999 ? float3(0, 0, 1) : float3(0, 1, 0), n));
             half handedness = input.tangentWS.w < 0 ? -1 : 1;
             half3 b = cross(n, t) * handedness;
-            normalTS = UnpackNormalScale(SAMPLE_TEXTURE2D(_NormalMap, sampler_NormalMap, input.uv * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw), _NormalScale);
+            #if defined(_NORMALMAP)
+                normalTS = UnpackNormalScale(SAMPLE_TEXTURE2D(_NormalMap, sampler_NormalMap, input.uv * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw), _NormalScale);
+            #endif
+        #endif
+        #if defined(_DETAIL_MAP)
+            float2 detailUV = input.uv * _UVDetailsMappingMask.x + input.detailUV * _UVDetailsMappingMask.y;
+            detailUV = detailUV * _DetailMap_ST.xy + _DetailMap_ST.zw;
+            if (_LinkDetailsWithBase > 0) detailUV = detailUV * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw;
+            half4 detail = SAMPLE_TEXTURE2D(_DetailMap, sampler_DetailMap, detailUV);
+            half detailMask = 1;
+            #if defined(_MASKMAP)
+                detailMask = SAMPLE_TEXTURE2D(_MaskMap, sampler_MaskMap, input.uv * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw).b;
+            #endif
+            half detailAlbedo = detail.r * 2 - 1;
+            half speed = saturate(abs(detailAlbedo) * _DetailAlbedoScale);
+            half3 overlay = lerp(sqrt(max(color.rgb, 0)), detailAlbedo < 0 ? 0 : 1, speed * speed);
+            color.rgb = lerp(color.rgb, saturate(overlay * overlay), detailMask);
+            half3 detailNormal = UnpackNormalAG(detail, _DetailNormalScale);
+            normalTS = lerp(normalTS, BlendNormalRNM(normalTS, detailNormal), detailMask);
         #endif
         #if defined(_DOUBLESIDED_ON)
             normalTS *= IS_FRONT_VFACE(frontFace, half3(1, 1, 1), _DoubleSidedConstants.xyz);
         #endif
-        #if defined(_NORMALMAP)
+        #if defined(_NORMALMAP) || defined(_DETAIL_MAP)
             n = SafeNormalize(t * normalTS.x + b * normalTS.y + n * normalTS.z);
         #else
             n = SafeNormalize(n * normalTS.z);
@@ -152,11 +194,41 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
             smoothness = lerp(_SmoothnessRemapMin, _SmoothnessRemapMax, mask.a);
             ao = lerp(_AORemapMin, _AORemapMax, mask.g);
         #endif
+        #if defined(_DETAIL_MAP)
+            half ds = detail.b * 2 - 1;
+            smoothness = lerp(smoothness, saturate(lerp(smoothness, ds < 0 ? 0 : 1, saturate(abs(ds) * _DetailSmoothnessScale))), detailMask);
+        #endif
         half3 v = _MobileCameraForward.w > 0 ? -_MobileCameraForward.xyz : SafeNormalize(_MobileCameraPosition.xyz - input.positionWS);
         MobileBRDFData brdf = MobileInitializeBRDF(color.rgb, metallic, smoothness, preserveSpecular ? color.a : 1.0h);
         half3 reflected = reflect(-v, n);
-        half4 env = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube0, samplerunity_SpecCube0, reflected, PerceptualRoughnessToMipmapLevel(brdf.perceptualRoughness));
-        float3 result = MobileEnvironmentBRDF(brdf, MobileBaked(input.lightmapUV, n), DecodeHDREnvironment(env, unity_SpecCube0_HDR), dot(n, v), ao);
+        float mip = PerceptualRoughnessToMipmapLevel(brdf.perceptualRoughness);
+        float3 direction0 = MobileBoxDirection(reflected, input.positionWS, unity_SpecCube0_ProbePosition, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
+        half4 env = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube0, samplerunity_SpecCube0, direction0, mip);
+        float3 indirectSpecular = DecodeHDREnvironment(env, unity_SpecCube0_HDR);
+        float blend = unity_SpecCube1_HDR.x > 0 ? saturate(unity_SpecCube0_BoxMin.w) : 1;
+        if (_MobileEnvironmentParams.x < 0.5 && blend < 0.99999)
+        {
+            float3 direction1 = MobileBoxDirection(reflected, input.positionWS, unity_SpecCube1_ProbePosition, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
+            half4 env1 = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube1, samplerunity_SpecCube0, direction1, mip);
+            indirectSpecular = lerp(DecodeHDREnvironment(env1, unity_SpecCube1_HDR), indirectSpecular, blend);
+        }
+        if (_MobileEnvironmentParams.x > 0)
+        {
+            float w0 = MobileEnvironmentProbeWeight(input.positionWS, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
+            float w1 = MobileEnvironmentProbeWeight(input.positionWS, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
+            // Native metadata stores the relative importance sign in BoxMin1.w.
+            if (unity_SpecCube1_BoxMin.w > 0) w1 *= 1 - w0;
+            else if (unity_SpecCube1_BoxMin.w < 0) w0 *= 1 - w1;
+            float sum = w0 + w1, normalization = max(sum, 1);
+            float3 local0 = DecodeHDREnvironment(env, unity_SpecCube0_HDR);
+            float3 direction1 = MobileBoxDirection(reflected, input.positionWS, unity_SpecCube1_ProbePosition, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
+            float3 local1 = DecodeHDREnvironment(SAMPLE_TEXTURECUBE_LOD(unity_SpecCube1, samplerunity_SpecCube0, direction1, mip), unity_SpecCube1_HDR);
+            float3 sky = SAMPLE_TEXTURECUBE_LOD(_MobileEnvironmentReflection, sampler_MobileEnvironmentReflection, reflected,
+                brdf.perceptualRoughness * _MobileEnvironmentParams.z).rgb * _MobileEnvironmentParams.w;
+            indirectSpecular = (local0 * w0 + local1 * w1) / normalization * _MobileIndirectMultiplier.z + sky * (1 - saturate(sum));
+        }
+        else indirectSpecular *= _MobileIndirectMultiplier.z;
+        float3 result = MobileEnvironmentBRDF(brdf, MobileBaked(input.lightmapUV, n) * _MobileIndirectMultiplier.x, indirectSpecular * _MobileIndirectMultiplier.y, dot(n, v), ao);
         result += MobileDirectBRDF(brdf, n, v, _MobileMainDirection.xyz) * _MobileMainColor.rgb * MobileShadow(input.positionWS);
         uint count = min((uint)unity_LightData.y, (uint)_MobileLightsPerObject);
         for (uint i = 0; i < count; i++)
@@ -170,19 +242,19 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
             result += MobileDirectBRDF(brdf, n, v, l) * _MobileLightColors[index].rgb
                 * (rangeFade * rangeFade * spot * spot / distanceSquared);
         }
-        result *= _MobileExposure;
+        result *= MobileCurrentExposure();
     #else
         // HDRP Unlit base color is display-referred; only emission has an
         // exposure weight. Applying camera EV to the whole Unlit result is wrong.
         float3 result = color.rgb * _MobileDeExposure;
     #endif
-    result += emission * lerp(1.0, _MobileExposure, _EmissiveExposureWeight);
+    result += emission * lerp(1.0, MobileCurrentExposure(), _EmissiveExposureWeight);
     float fog = _MobileFog.x * saturate((distance(input.positionWS, _MobileCameraPosition.xyz) - _MobileFog.y) * _MobileFog.z);
     #if defined(_SURFACE_TYPE_TRANSPARENT)
-        result = lerp(result, _MobileFogColor.rgb * _MobileExposure, fog);
+        result = lerp(result, _MobileFogColor.rgb * MobileCurrentExposure(), fog);
         result *= outputWeight;
     #else
-        result = lerp(result, _MobileFogColor.rgb * _MobileExposure, fog);
+        result = lerp(result, _MobileFogColor.rgb * MobileCurrentExposure(), fog);
         color.a = 1;
     #endif
     // Physical intensities can exceed the storage range at specular peaks. Accumulate

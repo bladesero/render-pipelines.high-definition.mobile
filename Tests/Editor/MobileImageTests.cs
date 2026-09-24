@@ -36,6 +36,8 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             m_Asset = Own(ScriptableObject.CreateInstance<HDRenderPipelineAsset>());
             m_Asset.rendererMode = HDRendererMode.Mobile; MobileRenderEditor.AssignResources(m_Asset);
             m_Asset.mobileSettings.fxaa = false; m_Asset.mobileSettings.bloom = false;
+            // Existing material oracles isolate direct/baked lighting. IBL tests opt in.
+            m_Asset.mobileSettings.environmentLighting = false;
             m_Asset.mobileSettings.drawUnsupportedMaterials = false;
             GraphicsSettings.renderPipelineAsset = m_Asset; QualitySettings.renderPipeline = m_Asset;
             typeof(RenderPipelineManager).GetMethod("PrepareRenderPipeline", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { m_Asset });
@@ -311,12 +313,41 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
             Same(first, Capture());
             GraphicsSettings.useScriptableRenderPipelineBatching = true;
-            Assert.Greater(Center(first).r, Center(first).g + 0.1f);
+            Assert.Greater(Center(first).r, Center(first).g + 0.1f, "First camera: " + Center(first));
             var other = MakeCamera(Width, Height); other.transform.position = new Vector3(5, 0, -3);
-            var second = Capture(other); Assert.Greater(Center(second).g, Center(second).r + 0.1f);
+            var second = Capture(other); Assert.Greater(Center(second).g, Center(second).r + 0.1f, "Second camera: " + Center(second));
             Same(first, Capture());
             var replacement = Own(Object.Instantiate(m_Asset)); GraphicsSettings.renderPipelineAsset = replacement; QualitySettings.renderPipeline = replacement;
             Same(first, Capture());
+        }
+
+        [UnityEngine.TestTools.UnityTest]
+        public System.Collections.IEnumerator OverlappingBakedProbesBlendAndRestoreBoxSettings()
+        {
+            var material = Material(true, Color.white); material.SetFloat("_Metallic", 1); material.SetFloat("_Smoothness", 0.8f);
+            var renderer = Quad(material); renderer.reflectionProbeUsage = ReflectionProbeUsage.BlendProbes;
+            m_Sun.enabled = false;
+            for (int p = 0; p < 2; ++p)
+            {
+                var cube = Own(new Cubemap(16, TextureFormat.RGBAHalf, true));
+                for (int face = 0; face < 6; ++face)
+                {
+                    var colors = new Color[256]; for (int i = 0; i < colors.Length; ++i) colors[i] = p == 0 ? Color.red : Color.green;
+                    cube.SetPixels(colors, (CubemapFace)face);
+                }
+                cube.Apply();
+                var obj = MakeObject("Blend probe " + p); obj.transform.position = new Vector3(p == 0 ? -0.5f : 0.5f, 0, 0);
+                var native = obj.AddComponent<ReflectionProbe>(); native.size = Vector3.one * 4;
+                var hd = obj.AddComponent<HDAdditionalReflectionData>(); hd.mode = ProbeSettings.Mode.Baked;
+                hd.influenceVolume.boxSize = Vector3.one * 4;
+                hd.influenceVolume.boxBlendDistancePositive = hd.influenceVolume.boxBlendDistanceNegative = Vector3.one;
+                hd.useInfluenceVolumeAsProxyVolume = true;
+                hd.SetTexture(ProbeSettings.Mode.Baked, cube);
+            }
+            yield return null;
+            var pixel = Center(Capture());
+            Assert.Greater(pixel.r, 0.05f); Assert.Greater(pixel.g, 0.05f);
+            Assert.Less(Mathf.Abs(pixel.r - pixel.g), 0.08f);
         }
 
         [Test]
@@ -346,7 +377,7 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         }
 
         [Test]
-        public void AutomaticExposureFallsBackToFixedEVInRenderedImage()
+        public void AutomaticExposureInitializesFromSharedFixedEV()
         {
             var exposure = CameraProfile().Add<Exposure>();
             exposure.mode.Override(ExposureMode.Fixed); exposure.fixedExposure.Override(10);
@@ -361,6 +392,210 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
                 Same(expected, Capture());
                 Assert.AreEqual(mode, exposure.mode.value);
             }
+        }
+
+        [Test]
+        public void DetailAlbedoUsesHDRPOverlayAndMask()
+        {
+            var material = Material(true, Color.gray); Quad(material);
+            var baseline = Capture();
+            material.SetTexture("_DetailMap", Solid(new Color(0.5f, 0.5f, 0.5f, 0.5f)));
+            material.SetVector("_UVDetailsMappingMask", new Vector4(1, 0, 0, 0));
+            material.SetFloat("_DetailAlbedoScale", 1); material.SetFloat("_DetailSmoothnessScale", 1); material.SetFloat("_DetailNormalScale", 1);
+            HDShaderUtils.ResetMaterialKeywords(material);
+            Same(baseline, Capture());
+            material.SetTexture("_DetailMap", Solid(new Color(0, 0.5f, 0.5f, 0.5f)));
+            Assert.Less(Center(Capture()).grayscale, Center(baseline).grayscale * 0.2f);
+            material.SetTexture("_MaskMap", Solid(new Color(0, 1, 0, 0.3f)));
+            HDShaderUtils.ResetMaterialKeywords(material);
+            Same(baseline, Capture());
+        }
+
+        [Test]
+        public void InspectorSettingsKeepTheLivePipelineAndExposureTextures()
+        {
+            var profile = CameraProfile(); var exposure = profile.Add<Exposure>();
+            exposure.mode.Override(ExposureMode.Automatic);
+            Quad(Material(false, Color.gray)); Capture();
+            var pipeline = RenderPipelineManager.currentPipeline;
+            var history = MobileExposureControl.active;
+            var texture = history.GetTexture(m_Camera);
+            m_Asset.mobileSettings.renderScale = 0.75f;
+            m_Asset.mobileSettings.bloom = !m_Asset.mobileSettings.bloom;
+            typeof(HDRenderPipelineAsset).GetMethod("OnValidate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(m_Asset, null);
+            typeof(RenderPipelineManager).GetMethod("PrepareRenderPipeline", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { m_Asset });
+            Assert.AreSame(pipeline, RenderPipelineManager.currentPipeline);
+            Assert.AreSame(history, MobileExposureControl.active);
+            Assert.AreSame(texture, history.GetTexture(m_Camera));
+            Capture();
+            Assert.IsTrue(((HDRenderPipeline)pipeline).CanUpdateMobileAssetInPlace(m_Asset));
+            m_Asset.rendererMode = HDRendererMode.Desktop;
+            Assert.IsFalse(((HDRenderPipeline)pipeline).CanUpdateMobileAssetInPlace(m_Asset));
+            m_Asset.rendererMode = HDRendererMode.Mobile;
+        }
+
+        [TestCase(1f)] [TestCase(0.5f)]
+        public void SceneViewFinalDepthOccludesEditorOverlays(float scale)
+        {
+            m_Camera.cameraType = CameraType.SceneView;
+            m_Asset.mobileSettings.renderScale = scale;
+            var renderer = Quad(Material(false, Color.red));
+            var mesh = renderer.GetComponent<MeshFilter>().sharedMesh;
+            var overlay = Material(false, Color.blue);
+            foreach (float z in new[] { 1f, -1f })
+            {
+                var baseline = Center(Capture());
+                var cmd = new CommandBuffer(); var previous = RenderTexture.active;
+                var read = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+                try
+                {
+                    cmd.SetRenderTarget(m_Camera.targetTexture);
+                    cmd.SetViewport(new Rect(0, 0, Width, Height));
+                    cmd.SetViewProjectionMatrices(m_Camera.worldToCameraMatrix, GL.GetGPUProjectionMatrix(m_Camera.projectionMatrix, true));
+                    cmd.DrawMesh(mesh, Matrix4x4.Translate(new Vector3(0, 0, z)), overlay, 0, overlay.FindPass("MobileForward"));
+                    Graphics.ExecuteCommandBuffer(cmd);
+                    RenderTexture.active = m_Camera.targetTexture;
+                    read.ReadPixels(new Rect(Width / 2, Height / 2, 1, 1), 0, 0); read.Apply();
+                    var pixel = read.GetPixel(0, 0);
+                    if (z > 0) Near(baseline, pixel, "Occluded overlay must not overwrite scene color");
+                    else Assert.Greater(pixel.b, pixel.r + 0.1f, "Foreground overlay must be visible");
+                }
+                finally { cmd.Release(); RenderTexture.active = previous; Object.DestroyImmediate(read); }
+            }
+        }
+
+        [Test]
+        public void RuntimeEnvironmentDoesNotAddDiffuseOverLightmaps()
+        {
+            var profile = CameraProfile(); profile.Add<VisualEnvironment>().skyType.Override((int)SkyType.Gradient);
+            var sky = profile.Add<GradientSky>(); sky.top.Override(Color.green * 4); sky.middle.Override(Color.green * 4); sky.bottom.Override(Color.green * 4);
+            var exposure = profile.Add<Exposure>(); exposure.mode.Override(ExposureMode.Fixed); exposure.fixedExposure.Override(0);
+            profile.Add<IndirectLightingController>().reflectionLightingMultiplier.Override(0);
+            m_Sun.enabled = false;
+            var renderer = Quad(Material(true, Color.white));
+            var previous = LightmapSettings.lightmaps; var previousMode = LightmapSettings.lightmapsMode;
+            try
+            {
+                LightmapSettings.lightmapsMode = LightmapsMode.NonDirectional;
+                LightmapSettings.lightmaps = new[] { new LightmapData { lightmapColor = Solid(Color.red) } };
+                renderer.lightmapIndex = 0; renderer.lightmapScaleOffset = new Vector4(1, 1, 0, 0);
+                var baseline = Capture(); Assert.Greater(Center(baseline).r, 0.1f);
+                m_Asset.mobileSettings.environmentLighting = true;
+                m_Asset.mobileSettings.environmentDiffuseSource = MobileEnvironmentDiffuseSource.RuntimeSky;
+                Same(baseline, Capture());
+                renderer.lightmapIndex = -1;
+                var dynamic = Center(Capture()); Assert.Greater(dynamic.g, dynamic.r + 0.2f);
+            }
+            finally { renderer.lightmapIndex = -1; LightmapSettings.lightmaps = previous; LightmapSettings.lightmapsMode = previousMode; }
+        }
+
+        [Test]
+        public void RuntimeEnvironmentLightsDiffuseAndMetalWithoutExposureFeedback()
+        {
+            var profile = CameraProfile();
+            profile.Add<VisualEnvironment>().skyType.Override((int)SkyType.Gradient);
+            var sky = profile.Add<GradientSky>(); sky.top.Override(Color.green * 4); sky.middle.Override(Color.green * 4); sky.bottom.Override(Color.green * 4);
+            var exposure = profile.Add<Exposure>(); exposure.mode.Override(ExposureMode.Fixed); exposure.fixedExposure.Override(0);
+            m_Sun.enabled = false;
+            var material = Material(true, Color.white); Quad(material);
+            var dark = Center(Capture());
+            m_Asset.mobileSettings.environmentLighting = true;
+            m_Asset.mobileSettings.environmentDiffuseSource = MobileEnvironmentDiffuseSource.RuntimeSky;
+            var diffuse = Center(Capture()); Assert.Greater(diffuse.g, dark.g + 0.2f); Assert.Greater(diffuse.g, diffuse.r + 0.2f);
+            material.SetFloat("_Metallic", 1); material.SetFloat("_Smoothness", 0.8f);
+            var metal = Center(Capture()); Assert.Greater(metal.g, 0.2f);
+            var state = MobileEnvironmentControl.active.Get(m_Camera); int generation = state.generation;
+            exposure.fixedExposure.Override(1);
+            Near(metal * 0.5f, Center(Capture())); Assert.AreEqual(generation, state.generation);
+            m_Camera.transform.position += Vector3.right * 0.1f; Capture(); Assert.AreEqual(generation, state.generation);
+            var indirect = profile.Add<IndirectLightingController>(); indirect.reflectionLightingMultiplier.Override(0);
+            Assert.Less(Center(Capture()).maxColorComponent, 0.002f);
+        }
+
+        [UnityEngine.TestTools.UnityTest]
+        public System.Collections.IEnumerator RuntimeEnvironmentFillsProbeBoundaryAndPreservesBlackLocalProbe()
+        {
+            var profile = CameraProfile(); profile.Add<VisualEnvironment>().skyType.Override((int)SkyType.Gradient);
+            var sky = profile.Add<GradientSky>(); sky.top.Override(Color.green); sky.middle.Override(Color.green); sky.bottom.Override(Color.green);
+            var exposure = profile.Add<Exposure>(); exposure.mode.Override(ExposureMode.Fixed); exposure.fixedExposure.Override(0);
+            m_Asset.mobileSettings.environmentLighting = true; m_Sun.enabled = false;
+            var material = Material(true, Color.white); material.SetFloat("_Metallic", 1); material.SetFloat("_Smoothness", 0.8f); Quad(material);
+            var cube = Own(new Cubemap(8, TextureFormat.RGBAHalf, true));
+            var pixels = new Color[64]; for (int i = 0; i < pixels.Length; ++i) pixels[i] = Color.red;
+            for (int f = 0; f < 6; ++f) cube.SetPixels(pixels, (CubemapFace)f); cube.Apply();
+            var obj = MakeObject("Environment local probe"); obj.AddComponent<ReflectionProbe>();
+            var hd = obj.AddComponent<HDAdditionalReflectionData>(); hd.mode = ProbeSettings.Mode.Baked;
+            hd.influenceVolume.boxSize = Vector3.one * 4;
+            hd.influenceVolume.boxBlendDistancePositive = hd.influenceVolume.boxBlendDistanceNegative = Vector3.one;
+            hd.SetTexture(ProbeSettings.Mode.Baked, cube);
+            yield return null;
+            var inside = Center(Capture()); Assert.Greater(inside.r, 0.1f); Assert.Less(inside.g, 0.01f);
+            obj.transform.position = Vector3.right * 1.5f;
+            var boundary = Center(Capture()); Assert.Greater(boundary.r, 0.05f); Assert.Greater(boundary.g, 0.05f);
+            obj.transform.position = Vector3.right * 5;
+            var outside = Center(Capture()); Assert.Greater(outside.g, 0.1f); Assert.Less(outside.r, 0.01f);
+            obj.transform.position = Vector3.zero;
+            for (int i = 0; i < pixels.Length; ++i) pixels[i] = Color.black;
+            for (int f = 0; f < 6; ++f) cube.SetPixels(pixels, (CubemapFace)f); cube.Apply();
+            Assert.Less(Center(Capture()).maxColorComponent, 0.002f, "A valid black probe must not be mistaken for missing data.");
+        }
+
+        [Test]
+        public void RuntimeEnvironmentUsesIndependentCameraVolumeStacks()
+        {
+            var profile = CameraProfile(); profile.Add<VisualEnvironment>().skyType.Override((int)SkyType.Gradient);
+            var sky = profile.Add<GradientSky>(); sky.top.Override(Color.green); sky.middle.Override(Color.green); sky.bottom.Override(Color.green);
+            var exposure = profile.Add<Exposure>(); exposure.mode.Override(ExposureMode.Fixed); exposure.fixedExposure.Override(0);
+            m_Asset.mobileSettings.environmentLighting = true; m_Asset.mobileSettings.environmentDiffuseSource = MobileEnvironmentDiffuseSource.RuntimeSky;
+            m_Sun.enabled = false; Quad(Material(true, Color.white));
+            var first = Capture(); Assert.Greater(Center(first).g, 0.1f);
+            var other = MakeCamera(Width, Height); other.GetComponent<HDAdditionalCameraData>().volumeLayerMask = 1 << 28;
+            var obj = MakeObject("Second environment Volume"); obj.layer = 28;
+            var volume = obj.AddComponent<Volume>(); volume.isGlobal = true;
+            var secondProfile = Own(ScriptableObject.CreateInstance<VolumeProfile>()); volume.sharedProfile = secondProfile;
+            secondProfile.Add<VisualEnvironment>().skyType.Override((int)SkyType.Gradient);
+            var secondSky = secondProfile.Add<GradientSky>(); secondSky.top.Override(Color.red); secondSky.middle.Override(Color.red); secondSky.bottom.Override(Color.red);
+            var secondExposure = secondProfile.Add<Exposure>(); secondExposure.mode.Override(ExposureMode.Fixed); secondExposure.fixedExposure.Override(0);
+            var second = Center(Capture(other)); Assert.Greater(second.r, second.g + 0.1f);
+            Same(first, Capture());
+            Assert.AreNotSame(MobileEnvironmentControl.active.Get(m_Camera).reflection, MobileEnvironmentControl.active.Get(other).reflection);
+        }
+
+        [Test]
+        public void DetailUV1UsesRawMeshCoordinates()
+        {
+            var material = Material(true, Color.gray); var renderer = Quad(material);
+            var filter = renderer.GetComponent<MeshFilter>(); var mesh = Own(Object.Instantiate(filter.sharedMesh)); filter.sharedMesh = mesh;
+            var uv0 = new Vector2[mesh.vertexCount]; var uv1 = new Vector2[mesh.vertexCount];
+            for (int i = 0; i < uv0.Length; ++i) { uv0[i] = new Vector2(0.25f, 0.5f); uv1[i] = new Vector2(0.75f, 0.5f); }
+            mesh.uv = uv0; mesh.uv2 = uv1;
+            var baseline = Capture();
+            var texture = Own(new Texture2D(2, 1, TextureFormat.RGBAFloat, false, true)); texture.filterMode = FilterMode.Point;
+            texture.SetPixels(new[] { new Color(0, 0.5f, 0.5f, 0.5f), new Color(0.5f, 0.5f, 0.5f, 0.5f) }); texture.Apply();
+            material.SetTexture("_DetailMap", texture); material.SetFloat("_DetailAlbedoScale", 1); HDShaderUtils.ResetMaterialKeywords(material);
+            material.SetVector("_UVDetailsMappingMask", new Vector4(0, 1, 0, 0));
+            Same(baseline, Capture());
+            material.SetVector("_UVDetailsMappingMask", new Vector4(1, 0, 0, 0));
+            Assert.Less(Center(Capture()).grayscale, Center(baseline).grayscale * 0.2f);
+        }
+
+        [Test]
+        public void AutomaticExposureConvergesOnUniformHDRSky()
+        {
+            var profile = CameraProfile();
+            profile.Add<VisualEnvironment>().skyType.Override((int)SkyType.Gradient);
+            var sky = profile.Add<GradientSky>();
+            sky.top.Override(Color.white * 1000); sky.middle.Override(Color.white * 1000); sky.bottom.Override(Color.white * 1000);
+            sky.skyIntensityMode.Override(SkyIntensityMode.Multiplier); sky.multiplier.Override(1);
+            var exposure = profile.Add<Exposure>(); exposure.mode.Override(ExposureMode.Automatic);
+            exposure.adaptationMode.Override(AdaptationMode.Fixed); exposure.fixedExposure.Override(10); exposure.limitMax.Override(20);
+            m_Camera.GetComponent<HDAdditionalCameraData>().clearColorMode = HDAdditionalCameraData.ClearColorMode.Sky;
+            Capture();
+            var pixels = Capture();
+            float ev = Mathf.Log(1000 * 100 / 12.5f, 2);
+            Near(Color.white * (1000 * MobileExposure.FromEV100(ev, 0, MobileExposure.LensScale)), Center(pixels));
+            MobileExposureControl.Reset(m_Camera);
+            Near(Color.white * (1000 * MobileExposure.FromEV100(10, 0, MobileExposure.LensScale)), Center(Capture()));
         }
 
         [Test]

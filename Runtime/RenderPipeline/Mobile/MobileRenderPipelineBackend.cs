@@ -5,7 +5,7 @@ using UnityEngine.Experimental.Rendering.RenderGraphModule;
 
 namespace UnityEngine.Rendering.HighDefinition
 {
-    // No HDCamera, desktop resources, compute light lists or temporal allocations.
+    // No HDCamera, desktop resources or compute light lists.
     internal sealed class MobileRenderPipelineBackend : IDisposable
     {
         const int MaxVisibleLights = 32;
@@ -16,9 +16,13 @@ namespace UnityEngine.Rendering.HighDefinition
         readonly RenderGraph m_Graph;
         readonly Material m_Composite, m_Sky, m_Error;
         readonly VolumeStack m_Volumes;
+        readonly MobileExposureHistory m_ExposureHistory = new MobileExposureHistory();
+        readonly MobileEnvironmentCache m_Environment = new MobileEnvironmentCache();
+        MobileEnvironmentCache.State m_CameraEnvironment;
         readonly Volume m_DefaultVolume;
         readonly MobileErrorRenderer m_ErrorRenderer = new MobileErrorRenderer();
         readonly System.Collections.Generic.Dictionary<ReflectionProbe, Texture> m_OriginalProbeTextures = new System.Collections.Generic.Dictionary<ReflectionProbe, Texture>();
+        readonly System.Collections.Generic.Dictionary<ReflectionProbe, Vector2> m_OriginalProbeSettings = new System.Collections.Generic.Dictionary<ReflectionProbe, Vector2>();
         readonly System.Collections.Generic.HashSet<ReflectionProbe> m_ActiveBakedProbes = new System.Collections.Generic.HashSet<ReflectionProbe>();
         readonly System.Collections.Generic.List<ReflectionProbe> m_ExpiredProbes = new System.Collections.Generic.List<ReflectionProbe>();
         readonly Vector4[] m_Positions = new Vector4[MaxVisibleLights];
@@ -37,11 +41,19 @@ namespace UnityEngine.Rendering.HighDefinition
         Vector4 m_MainDirection, m_MainColor;
         bool m_Disposed;
 
+        internal bool CanUpdateInPlace(HDRenderPipelineAsset asset) => !m_Disposed && asset == m_Asset
+            && asset.rendererMode == HDRendererMode.Mobile
+            && m_Composite != null && m_Composite.shader == asset.mobileResources.compositeShader
+            && m_Sky != null && m_Sky.shader == asset.mobileResources.skyShader
+            && m_Error != null && m_Error.shader == asset.mobileResources.errorShader;
+
         internal MobileRenderPipelineBackend(HDRenderPipelineAsset asset, Action<string> initializationCheckpoint = null)
         {
             m_Asset = asset;
             if (s_ActiveOwner != null)
                 foreach (var entry in s_ActiveOwner.m_OriginalProbeTextures) m_OriginalProbeTextures.Add(entry.Key, entry.Value);
+            if (s_ActiveOwner != null)
+                foreach (var entry in s_ActiveOwner.m_OriginalProbeSettings) m_OriginalProbeSettings.Add(entry.Key, entry.Value);
             m_PreviousBatcher = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousBatcher : GraphicsSettings.useScriptableRenderPipelineBatching;
             m_PreviousLinear = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousLinear : GraphicsSettings.lightsUseLinearIntensity;
             m_PreviousTemperature = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousTemperature : GraphicsSettings.lightsUseColorTemperature;
@@ -68,6 +80,8 @@ namespace UnityEngine.Rendering.HighDefinition
                 }
                 initializationCheckpoint?.Invoke("DefaultVolume");
                 s_ActiveOwner = this;
+                MobileExposureControl.active = m_ExposureHistory;
+                MobileEnvironmentControl.active = m_Environment;
                 Shader.globalRenderPipeline = HDRenderPipeline.k_ShaderTagName;
                 GraphicsSettings.useScriptableRenderPipelineBatching = true;
                 GraphicsSettings.lightsUseLinearIntensity = true;
@@ -87,14 +101,17 @@ namespace UnityEngine.Rendering.HighDefinition
             catch { Dispose(); throw; }
         }
 
-        internal void EndFrame() { if (!m_Disposed) m_Graph.EndFrame(); }
+        internal void EndFrame() { if (!m_Disposed) { m_ExposureHistory.Prune(); m_Environment.Prune(); m_Graph.EndFrame(); } }
 
         internal void Render(ScriptableRenderContext context, Camera camera)
         {
             if (m_Disposed || camera == null || camera.stereoEnabled || camera.cameraType == CameraType.Reflection)
                 return;
-            if (!camera.TryGetCullingParameters(out var parameters)) return;
             SynchronizeBakedReflectionProbes();
+            // HDRP stores baked textures separately. Flush changes into the native
+            // spatial cache before culling, including the first Camera.Render call.
+            ReflectionProbe.UpdateCachedState();
+            if (!camera.TryGetCullingParameters(out var parameters)) return;
             var settings = m_Asset.mobileSettings;
             if (settings.drawUnsupportedMaterials) m_ErrorRenderer.Prepare(camera);
             parameters.shadowDistance = Mathf.Min(Mathf.Max(0.1f, settings.shadowDistance), camera.farClipPlane);
@@ -108,27 +125,23 @@ namespace UnityEngine.Rendering.HighDefinition
             PrepareLights(ref culling);
             bool shadows = PrepareShadows(ref culling, settings);
             camera.TryGetComponent<HDAdditionalCameraData>(out var additional);
-            // Match HDCamera's Scene View Volume selection without allocating an HDCamera.
-            var volumeCamera = additional;
-            if (volumeCamera == null && camera.cameraType == CameraType.SceneView && Camera.main != null)
-                Camera.main.TryGetComponent(out volumeCamera);
-            var anchor = volumeCamera != null && volumeCamera.volumeAnchorOverride != null ? volumeCamera.volumeAnchorOverride : camera.transform;
-            int mask = volumeCamera != null ? (int)volumeCamera.volumeLayerMask : -1;
-            if (volumeCamera == null && camera.cameraType == CameraType.SceneView)
-            {
-                int skyMask = m_Asset.currentPlatformRenderPipelineSettings.lightLoopSettings.skyLightingOverrideLayerMask;
-                mask = skyMask == -1 ? -1 : ~(skyMask | (1 << 31));
-            }
+            MobileExposure.GetVolumeContext(camera, m_Asset, out var anchor, out var mask);
             if (m_DefaultVolume != null) m_DefaultVolume.sharedProfile = HDRenderPipelineGlobalSettings.instance?.volumeProfile;
             VolumeManager.instance.Update(m_Volumes, anchor, mask);
             FrameSettings frameSettings = new FrameSettings();
             FrameSettings.AggregateFrameSettings(ref frameSettings, camera, additional, m_Asset);
             float exposure = MobileExposure.Evaluate(m_Volumes.GetComponent<Exposure>(), camera, frameSettings.IsEnabled(FrameSettingsField.ExposureControl));
+            var exposureVolume = m_Volumes.GetComponent<Exposure>();
+            var exposureState = m_ExposureHistory.Prepare(camera, exposureVolume, frameSettings.IsEnabled(FrameSettingsField.ExposureControl));
             Vector2Int renderSize = settings.GetRenderSize(camera);
             int width = renderSize.x, height = renderSize.y;
             var cmd = CommandBufferPool.Get("HDRP Mobile");
             try
             {
+                var sky = MobileSky.Resolve(settings, m_Volumes, RenderSettings.skybox, Mathf.Max(m_MainColor.x, Mathf.Max(m_MainColor.y, m_MainColor.z)));
+                m_CameraEnvironment = m_Environment.Prepare(cmd, camera, sky, m_MainDirection, m_MainColor, settings, m_Sky);
+                context.ExecuteCommandBuffer(cmd); cmd.Clear();
+                MobileExposureHistory.Initialize(cmd, exposureState, exposureVolume);
                 context.SetupCameraProperties(camera);
                 using (m_Graph.RecordAndExecute(new RenderGraphParameters
                 {
@@ -152,7 +165,8 @@ namespace UnityEngine.Rendering.HighDefinition
                         isShadowMap = true, clearBuffer = true, filterMode = FilterMode.Bilinear
                     });
                     RecordShadows(camera, culling, atlas, atlasSize, shadows);
-                    RecordScene(camera, culling, color, depth, atlas, atlasSize, shadows, width, height, exposure);
+                    RecordScene(camera, culling, color, depth, atlas, atlasSize, shadows, width, height, exposure, exposureState);
+                    m_ExposureHistory.Record(m_Graph, color, exposureState, exposureVolume, m_Composite, (int)settings.meteringResolution);
                     TextureHandle bloom = m_Graph.defaultResources.blackTexture;
                     var bloomVolume = m_Volumes.GetComponent<Bloom>();
                     float bloomIntensity = settings.bloom && bloomVolume.active ? bloomVolume.intensity.value : 0f;
@@ -165,10 +179,15 @@ namespace UnityEngine.Rendering.HighDefinition
                     var output = m_Graph.ImportBackbuffer(camera.targetTexture != null
                         ? new RenderTargetIdentifier(camera.targetTexture) : new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget));
                     RecordComposite(camera, color, bloom, output, width, height, bloomIntensity);
+#if UNITY_EDITOR
+                    if (camera.cameraType == CameraType.SceneView || UnityEditor.Handles.ShouldRenderGizmos())
+                        RecordEditorGizmos(camera, depth, output);
+#endif
                 }
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
                 context.Submit();
+                MobileExposureHistory.Commit(exposureState);
             }
             finally { CommandBufferPool.Release(cmd); }
         }
@@ -186,16 +205,35 @@ namespace UnityEngine.Rendering.HighDefinition
                 if (legacy == null) continue;
                 m_ActiveBakedProbes.Add(legacy);
                 if (!m_OriginalProbeTextures.ContainsKey(legacy)) m_OriginalProbeTextures.Add(legacy, legacy.customBakedTexture);
+                if (!m_OriginalProbeSettings.ContainsKey(legacy)) m_OriginalProbeSettings.Add(legacy, new Vector2(legacy.boxProjection ? 1 : 0, legacy.blendDistance));
+                bool boxProjection = !probe.isProjectionInfinite && probe.proxyVolume == null && probe.influenceVolume.shape == InfluenceShape.Box;
+                if (legacy.boxProjection != boxProjection) legacy.boxProjection = boxProjection;
+                var positive = probe.influenceVolume.boxBlendDistancePositive;
+                var negative = probe.influenceVolume.boxBlendDistanceNegative;
+                float blendDistance = Mathf.Min(Mathf.Min(positive.x, Mathf.Min(positive.y, positive.z)), Mathf.Min(negative.x, Mathf.Min(negative.y, negative.z)));
+                // A zero HDRP face distance means a hard boundary, not the legacy default.
+                float nativeBlend = Mathf.Max(0, blendDistance);
+                if (legacy.blendDistance != nativeBlend) legacy.blendDistance = nativeBlend;
                 if (legacy.customBakedTexture != probe.bakedTexture) legacy.customBakedTexture = probe.bakedTexture;
             }
             m_ExpiredProbes.Clear();
             foreach (var entry in m_OriginalProbeTextures)
             {
                 if (m_ActiveBakedProbes.Contains(entry.Key)) continue;
-                if (entry.Key != null) entry.Key.customBakedTexture = entry.Value;
+                if (entry.Key != null)
+                {
+                    entry.Key.customBakedTexture = entry.Value;
+                    RestoreProbeSettings(entry.Key);
+                }
                 m_ExpiredProbes.Add(entry.Key);
             }
-            foreach (var probe in m_ExpiredProbes) m_OriginalProbeTextures.Remove(probe);
+            foreach (var probe in m_ExpiredProbes) { m_OriginalProbeTextures.Remove(probe); m_OriginalProbeSettings.Remove(probe); }
+        }
+
+        void RestoreProbeSettings(ReflectionProbe probe)
+        {
+            if (!m_OriginalProbeSettings.TryGetValue(probe, out var settings)) return;
+            probe.boxProjection = settings.x > 0; probe.blendDistance = settings.y;
         }
 
         void PrepareLights(ref CullingResults culling)
@@ -348,13 +386,18 @@ namespace UnityEngine.Rendering.HighDefinition
             internal bool drawErrors, drawSky;
             internal MobileSky sky;
             internal float exposure, deExposure;
+            internal TextureHandle exposureTexture;
+            internal bool automaticExposure;
+            internal MobileEnvironmentCache.State environment;
+            internal Vector4 indirect;
+            internal bool bakedProbes;
             internal readonly Vector4[] positions = new Vector4[MaxVisibleLights], colors = new Vector4[MaxVisibleLights],
                 spots = new Vector4[MaxVisibleLights], attenuations = new Vector4[MaxVisibleLights], spheres = new Vector4[2];
             internal readonly Matrix4x4[] shadowMatrices = new Matrix4x4[2];
         }
 
         void RecordScene(Camera camera, CullingResults culling, TextureHandle color, TextureHandle depth,
-            TextureHandle atlas, int atlasSize, bool shadows, int width, int height, float exposure)
+            TextureHandle atlas, int atlasSize, bool shadows, int width, int height, float exposure, MobileExposureHistory.State exposureState)
         {
             using (var builder = m_Graph.AddRenderPass<SceneData>("Mobile Forward", out var data))
             {
@@ -379,9 +422,15 @@ namespace UnityEngine.Rendering.HighDefinition
                 data.drawErrors = settings.drawUnsupportedMaterials;
                 camera.TryGetComponent<HDAdditionalCameraData>(out var additional);
                 data.exposure = exposure;
+                data.automaticExposure = exposureState != null;
+                data.exposureTexture = builder.ReadTexture(exposureState != null ? m_Graph.ImportTexture(exposureState.read) : m_Graph.defaultResources.whiteTexture);
                 data.deExposure = additional != null ? additional.deExposureMultiplier : 1f;
                 data.drawSky = additional != null ? additional.clearColorMode == HDAdditionalCameraData.ClearColorMode.Sky : camera.clearFlags == CameraClearFlags.Skybox;
                 data.sky = MobileSky.Resolve(settings, m_Volumes, RenderSettings.skybox, Mathf.Max(m_MainColor.x, Mathf.Max(m_MainColor.y, m_MainColor.z)));
+                data.environment = m_CameraEnvironment;
+                data.bakedProbes = settings.environmentDiffuseSource == MobileEnvironmentDiffuseSource.PreferBakedProbes && LightmapSettings.lightProbes != null && LightmapSettings.lightProbes.count > 0;
+                var indirect = m_Volumes.GetComponent<IndirectLightingController>();
+                data.indirect = indirect.active ? new Vector4(indirect.indirectDiffuseLightingMultiplier.value, indirect.reflectionLightingMultiplier.value, indirect.reflectionProbeIntensityMultiplier.value, 0) : Vector4.one;
                 data.atlas = builder.ReadTexture(atlas);
                 builder.UseColorBuffer(color, 0); builder.UseDepthBuffer(depth, DepthAccess.ReadWrite);
                 builder.SetRenderFunc((SceneData pass, RenderGraphContext ctx) => pass.owner.DrawScene(pass, ctx));
@@ -390,9 +439,16 @@ namespace UnityEngine.Rendering.HighDefinition
 
         void DrawScene(SceneData pass, RenderGraphContext ctx)
         {
+            bool environment = pass.environment != null && pass.environment.ready;
+            ctx.cmd.SetGlobalVector("_MobileEnvironmentParams", new Vector4(environment ? 1 : 0, pass.bakedProbes ? 1 : 0, environment ? pass.environment.mips - 1 : 0, 1024));
+            ctx.cmd.SetGlobalVector("_MobileIndirectMultiplier", pass.indirect);
+            ctx.cmd.SetGlobalTexture("_MobileEnvironmentDiffuse", environment ? (Texture)pass.environment.diffuse : CoreUtils.blackCubeTexture);
+            ctx.cmd.SetGlobalTexture("_MobileEnvironmentReflection", environment ? (Texture)pass.environment.reflection : CoreUtils.blackCubeTexture);
             ctx.cmd.SetViewport(new Rect(0, 0, pass.width, pass.height));
             ctx.cmd.SetGlobalMatrix("_MobileVP", pass.vp);
             ctx.cmd.SetGlobalFloat("_MobileExposure", pass.exposure);
+            ctx.cmd.SetGlobalFloat("_MobileAutomaticExposure", pass.automaticExposure ? 1 : 0);
+            ctx.cmd.SetGlobalTexture("_MobileExposureTexture", pass.exposureTexture);
             ctx.cmd.SetGlobalFloat("_MobileDeExposure", pass.deExposure);
             ctx.cmd.SetGlobalMatrix("_MobileInvVP", pass.vp.inverse);
             ctx.cmd.SetGlobalVector("_MobileCameraPosition", pass.position);
@@ -420,7 +476,8 @@ namespace UnityEngine.Rendering.HighDefinition
             if (pass.sky.mode != 0 && pass.drawSky)
             {
                 if (pass.sky.cube != null) ctx.cmd.SetGlobalTexture("_MobileSky", pass.sky.cube);
-                ctx.cmd.SetGlobalFloat("_MobileSkyIntensity", pass.sky.intensity * (pass.sky.cameraExposure ? pass.exposure : 1));
+                ctx.cmd.SetGlobalFloat("_MobileSkyIntensity", pass.sky.intensity);
+                ctx.cmd.SetGlobalFloat("_MobileSkyCameraExposure", pass.sky.cameraExposure ? 1 : 0);
                 ctx.cmd.SetGlobalVector("_MobileSkyOptions", new Vector4(pass.sky.mode, Mathf.Cos(pass.sky.rotation), Mathf.Sin(pass.sky.rotation), pass.sky.diffusion));
                 ctx.cmd.SetGlobalFloat("_MobileSkySunSize", pass.sky.sunSize);
                 ctx.cmd.SetGlobalColor("_MobileSkyTint", pass.sky.tint);
@@ -433,11 +490,49 @@ namespace UnityEngine.Rendering.HighDefinition
             DrawObjects(ctx.renderContext, pass.camera, pass.culling, pass.mainLight, true);
             if (pass.drawErrors) m_ErrorRenderer.Draw(ctx.cmd, pass.camera, m_Error, true);
             ctx.renderContext.ExecuteCommandBuffer(ctx.cmd); ctx.cmd.Clear();
-#if UNITY_EDITOR
-            if (UnityEditor.Handles.ShouldRenderGizmos())
-                ctx.renderContext.DrawGizmos(pass.camera, GizmoSubset.PreImageEffects);
-#endif
         }
+
+#if UNITY_EDITOR
+        class EditorGizmoData
+        {
+            internal TextureHandle depth, output;
+            internal Camera camera;
+            internal Material material;
+        }
+        void RecordEditorGizmos(Camera camera, TextureHandle depth, TextureHandle output)
+        {
+            using (var builder = m_Graph.AddRenderPass<EditorGizmoData>("Mobile Editor Depth and Gizmos", out var data))
+            {
+                data.depth = builder.ReadTexture(depth);
+                data.output = builder.WriteTexture(output);
+                data.camera = camera; data.material = m_Composite;
+                builder.AllowPassCulling(false);
+                builder.SetRenderFunc((EditorGizmoData pass, RenderGraphContext ctx) =>
+                {
+                    // Explicitly bind the final target's depth attachment, not the scaled HDR depth.
+                    RTHandle target = pass.output;
+                    ctx.cmd.SetRenderTarget(target.nameID);
+                    ctx.cmd.SetViewport(pass.camera.pixelRect);
+                    ctx.cmd.SetGlobalTexture("_MobileEditorDepth", pass.depth);
+                    ctx.cmd.SetGlobalFloat("_MobileEditorDepthFlip", SystemInfo.graphicsUVStartsAtTop && pass.camera.targetTexture == null ? 1 : 0);
+                    ctx.cmd.DrawProcedural(Matrix4x4.identity, pass.material, 6, MeshTopology.Triangles, 3);
+                    ctx.renderContext.ExecuteCommandBuffer(ctx.cmd); ctx.cmd.Clear();
+                    if (UnityEditor.Handles.ShouldRenderGizmos())
+                    {
+                        // Editor overlays must not contribute to automatic exposure or bloom.
+                        var exposure = Gizmos.exposure;
+                        try
+                        {
+                            Gizmos.exposure = Texture2D.whiteTexture;
+                            ctx.renderContext.DrawGizmos(pass.camera, GizmoSubset.PreImageEffects);
+                            ctx.renderContext.DrawGizmos(pass.camera, GizmoSubset.PostImageEffects);
+                        }
+                        finally { Gizmos.exposure = exposure; }
+                    }
+                });
+            }
+        }
+#endif
 
         void DrawObjects(ScriptableRenderContext context, Camera camera, CullingResults culling, int mainLight, bool transparent)
         {
@@ -534,6 +629,8 @@ namespace UnityEngine.Rendering.HighDefinition
             {
                 try
                 {
+                    m_ExposureHistory.Dispose();
+                    m_Environment.Dispose();
                     CoreUtils.Destroy(m_Composite); CoreUtils.Destroy(m_Sky); CoreUtils.Destroy(m_Error);
                     if (m_Volumes != null) VolumeManager.instance.DestroyStack(m_Volumes);
                     if (m_DefaultVolume != null) CoreUtils.Destroy(m_DefaultVolume.gameObject);
@@ -547,7 +644,7 @@ namespace UnityEngine.Rendering.HighDefinition
                             try
                             {
                                 foreach (var entry in m_OriginalProbeTextures)
-                                    if (entry.Key != null) entry.Key.customBakedTexture = entry.Value;
+                                    if (entry.Key != null) { entry.Key.customBakedTexture = entry.Value; RestoreProbeSettings(entry.Key); }
                             }
                             finally
                             {
@@ -564,6 +661,7 @@ namespace UnityEngine.Rendering.HighDefinition
                     finally
                     {
                         m_OriginalProbeTextures.Clear(); m_ActiveBakedProbes.Clear(); m_ExpiredProbes.Clear();
+                        m_OriginalProbeSettings.Clear();
                     }
                 }
             }

@@ -34,7 +34,8 @@ Shader "Hidden/HDRP/Tests/URP14MaterialParity"
             {
                 BRDFData brdf;
                 InitializeBRDFData(albedo, metallic, 0, smoothness, alpha, brdf);
-                direct = DirectBRDF(brdf, n, l, v) * saturate(dot(n,l));
+                // Adapt the unmodified URP oracle to HDRP physical light units.
+                direct = DirectBRDF(brdf, n, l, v) * saturate(dot(n,l)) / PI;
                 gi = EnvironmentBRDF(brdf, irradiance, reflection, Pow4(1.0h - saturate(dot(n,v)))) * ao;
             }
             else

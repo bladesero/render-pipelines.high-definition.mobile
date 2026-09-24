@@ -20,7 +20,7 @@ namespace UnityEditor.Rendering.HighDefinition
 
         public static void Run()
         {
-            if (!Application.isBatchMode) throw new InvalidOperationException("Use a disposable batch-mode validation project.");
+            MobileProductionValidation.RequireIsolatedProject();
             PlayerSettings.colorSpace = ColorSpace.Linear;
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             s_Asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
@@ -216,7 +216,7 @@ namespace UnityEditor.Rendering.HighDefinition
 
         public static void BakeBenchmark()
         {
-            if (!Application.isBatchMode) throw new InvalidOperationException("Use a disposable batch-mode validation project.");
+            MobileProductionValidation.RequireIsolatedProject();
             try
             {
                 const string folder = "Assets/MobileBenchmark";
@@ -249,7 +249,7 @@ namespace UnityEditor.Rendering.HighDefinition
 
         static void BuildAndroid(bool export)
         {
-            if (!Application.isBatchMode) throw new InvalidOperationException("Use a disposable batch-mode validation project.");
+            MobileProductionValidation.RequireIsolatedProject();
             try
             {
                 const string folder = "Assets/MobileBenchmark";

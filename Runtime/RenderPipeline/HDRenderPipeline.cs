@@ -369,6 +369,7 @@ namespace UnityEngine.Rendering.HighDefinition
         RenderGraph m_RenderGraph;
 
         MobileRenderPipelineBackend m_MobileBackend;
+        internal bool CanUpdateMobileAssetInPlace(HDRenderPipelineAsset asset) => m_MobileBackend != null && m_MobileBackend.CanUpdateInPlace(asset);
         bool m_IsMobileRenderer;
 
         // MSAA resolve materials

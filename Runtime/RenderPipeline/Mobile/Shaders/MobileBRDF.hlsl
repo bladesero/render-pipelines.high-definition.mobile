@@ -44,8 +44,11 @@ half MobileDirectSpecular(MobileBRDFData data, half3 normal, half3 light, half3 
 
 half3 MobileDirectBRDF(MobileBRDFData data, half3 normal, half3 view, half3 light)
 {
+    // URP's direct BRDF omits PI from both diffuse and its GGX approximation.
+    // HDRP supplies physical lux/candela, so normalize the complete direct term.
+    // IBL, lightmaps and emission have separate radiance conventions.
     return (data.diffuse + data.specular * MobileDirectSpecular(data, normal, light, view))
-        * saturate(dot(normal, light));
+        * (INV_PI * saturate(dot(normal, light)));
 }
 
 float3 MobileEnvironmentBRDF(MobileBRDFData data, float3 irradiance, float3 reflection, half noV, half occlusion)

@@ -24,6 +24,7 @@ namespace UnityEditor.Rendering.HighDefinition
         protected override void OnMaterialGUI(MaterialEditor materialEditor, MaterialProperty[] props)
         {
             uiBlocks.OnGUI(materialEditor, props);
+            MobileRenderEditor.DrawMaterialSupport(materialEditor);
         }
 
         public override void ValidateMaterial(Material material) => UnlitAPI.ValidateMaterial(material);

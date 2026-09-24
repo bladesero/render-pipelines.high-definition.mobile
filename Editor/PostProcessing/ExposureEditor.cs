@@ -97,7 +97,7 @@ namespace UnityEditor.Rendering.HighDefinition
                 if (UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline is HDRenderPipelineAsset asset
                     && asset.rendererMode == HDRendererMode.Mobile)
                 {
-                    EditorGUILayout.HelpBox("Mobile automatically uses Fixed Exposure and Compensation for this mode. Desktop retains automatic metering. Enable the Fixed Exposure override to set the Mobile EV.", MessageType.Info);
+                    EditorGUILayout.HelpBox("Mobile uses lightweight Automatic metering (Average/Center Weighted). Histogram, curve and custom mask controls are ignored. Fixed Exposure initializes camera history; Compensation, Limits, Target Gray and Adaptation are shared with Desktop.", MessageType.Info);
                     DoExposurePropertyField(m_FixedExposure);
                 }
                 EditorGUILayout.Space();

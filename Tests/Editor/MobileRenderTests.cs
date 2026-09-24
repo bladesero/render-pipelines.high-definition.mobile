@@ -11,10 +11,19 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
     public class MobileRenderTests
     {
         RenderPipelineAsset m_PreviousGraphics, m_PreviousQuality;
+        readonly Dictionary<string, byte[]> m_AssetSnapshots = new Dictionary<string, byte[]>();
+        string m_ScenePath;
 
         [SetUp]
         public void SuspendProjectPipeline()
         {
+            m_AssetSnapshots.Clear();
+            foreach (var guid in AssetDatabase.FindAssets("t:VolumeProfile", new[] { "Assets" }))
+            {
+                string path = AssetDatabase.GUIDToAssetPath(guid);
+                m_AssetSnapshots[path] = System.IO.File.ReadAllBytes(path);
+            }
+            m_ScenePath = UnityEngine.SceneManagement.SceneManager.GetActiveScene().path;
             m_PreviousGraphics = GraphicsSettings.renderPipelineAsset;
             m_PreviousQuality = QualitySettings.renderPipeline;
             GraphicsSettings.renderPipelineAsset = null;
@@ -28,6 +37,9 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         {
             GraphicsSettings.renderPipelineAsset = m_PreviousGraphics;
             QualitySettings.renderPipeline = m_PreviousQuality;
+            foreach (var snapshot in m_AssetSnapshots)
+                CollectionAssert.AreEqual(snapshot.Value, System.IO.File.ReadAllBytes(snapshot.Key), "Test changed project Profile: " + snapshot.Key);
+            Assert.AreEqual(m_ScenePath, UnityEngine.SceneManagement.SceneManager.GetActiveScene().path, "Test did not restore the active scene.");
         }
 
         [Test]
@@ -42,14 +54,22 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             var cube = new Cubemap(16, TextureFormat.RGBAHalf, false);
             hd.SetTexture(ProbeSettings.Mode.Baked, cube);
             var original = native.customBakedTexture;
+            bool originalBox = native.boxProjection;
+            float originalBlend = native.blendDistance;
+            hd.useInfluenceVolumeAsProxyVolume = true;
+            hd.influenceVolume.boxBlendDistancePositive = hd.influenceVolume.boxBlendDistanceNegative = Vector3.one * 0.4f;
             var backend = new MobileRenderPipelineBackend(asset);
             try
             {
                 backend.SynchronizeBakedReflectionProbes();
                 Assert.AreSame(cube, native.customBakedTexture);
+                Assert.IsTrue(native.boxProjection);
+                Assert.AreEqual(0.4f, native.blendDistance);
                 hd.enabled = false;
                 backend.SynchronizeBakedReflectionProbes();
                 Assert.AreSame(original, native.customBakedTexture);
+                Assert.AreEqual(originalBox, native.boxProjection);
+                Assert.AreEqual(originalBlend, native.blendDistance);
                 hd.enabled = true;
                 backend.SynchronizeBakedReflectionProbes();
                 Assert.AreSame(cube, native.customBakedTexture);

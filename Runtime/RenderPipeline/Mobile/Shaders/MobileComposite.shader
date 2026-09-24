@@ -9,10 +9,15 @@ Shader "Hidden/HDRP/Mobile/Composite"
         #pragma only_renderers d3d11 vulkan
         #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
         #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
+        #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/PhysicalCamera.hlsl"
+        #include "MobileExposure.hlsl"
+        float4 _MobileMeterParams, _MobileAdaptation, _MobileMeterSize;
         TEXTURE2D(_MobileSource); SAMPLER(sampler_LinearClamp);
         TEXTURE2D(_MobileBloom);
         float4 _MobileSourceSize, _MobileAdjustments, _MobilePostOptions, _MobileColorFilter;
         float _MobileHue, _MobileBloomIntensity;
+        TEXTURE2D(_MobileEditorDepth); SAMPLER(sampler_PointClamp);
+        float _MobileEditorDepthFlip;
         struct Varyings { float4 positionCS : SV_POSITION; float2 uv : TEXCOORD0; };
         Varyings Vert(uint id : SV_VertexID)
         {
@@ -77,6 +82,40 @@ Shader "Hidden/HDRP/Mobile/Composite"
             return half4(max(color - 1, 0), 1);
         }
         half4 Downsample(Varyings input) : SV_Target { return half4(Filter(input.uv), 1); }
+        float2 Meter(Varyings input) : SV_Target
+        {
+            float exposure = max(LOAD_TEXTURE2D(_MobileExposureTexture, int2(0, 0)).r, 1e-20);
+            float3 color = SAMPLE_TEXTURE2D_LOD(_MobileSource, sampler_LinearClamp, input.uv, 0).rgb;
+            float luminance = clamp(Luminance(color) / exposure, 1e-4, 1e20);
+            float ev = ComputeEV100FromAvgLuminance(luminance, _MobileMeterParams.w);
+            float weight = _MobileMeterSize.z > 0 ? 1 - saturate(length(input.uv - 0.5)) : 1;
+            return float2(ev * weight, weight);
+        }
+        float2 ReduceMeter(float2 uv)
+        {
+            int2 basePixel = int2(uv / _MobileMeterSize.xy) & ~1;
+            return 0.25 * (LOAD_TEXTURE2D(_MobileSource, basePixel).rg
+                + LOAD_TEXTURE2D(_MobileSource, basePixel + int2(1,0)).rg
+                + LOAD_TEXTURE2D(_MobileSource, basePixel + int2(0,1)).rg
+                + LOAD_TEXTURE2D(_MobileSource, basePixel + int2(1,1)).rg);
+        }
+        float2 Reduce(Varyings input) : SV_Target { return ReduceMeter(input.uv); }
+        float2 Adapt(Varyings input) : SV_Target
+        {
+            float2 meter = ReduceMeter(input.uv);
+            float previousEV = LOAD_TEXTURE2D(_MobileExposureTexture, int2(0,0)).g;
+            float ev = meter.x / max(meter.y, 1e-8) - _MobileMeterParams.x;
+            if (_MobileAdaptation.w > 0)
+                ev = ComputeLuminanceAdaptation(previousEV, ev, _MobileAdaptation.x, _MobileAdaptation.y, _MobileAdaptation.z);
+            ev = clamp(ev, _MobileMeterParams.y, _MobileMeterParams.z);
+            return float2(ConvertEV100ToExposure(ev, _MobileMeterSize.w), ev);
+        }
+        float CopyEditorDepth(Varyings input) : SV_Depth
+        {
+            float2 uv = input.uv;
+            if (_MobileEditorDepthFlip > 0) uv.y = 1 - uv.y;
+            return SAMPLE_TEXTURE2D_LOD(_MobileEditorDepth, sampler_PointClamp, uv, 0).r;
+        }
         ENDHLSL
         Pass
         {
@@ -100,6 +139,39 @@ Shader "Hidden/HDRP/Mobile/Composite"
             HLSLPROGRAM
             #pragma vertex Vert
             #pragma fragment Downsample
+            ENDHLSL
+        }
+        Pass
+        {
+            Name "MobileExposureMeter"
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment Meter
+            ENDHLSL
+        }
+        Pass
+        {
+            Name "MobileExposureReduce"
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment Reduce
+            ENDHLSL
+        }
+        Pass
+        {
+            Name "MobileExposureAdapt"
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment Adapt
+            ENDHLSL
+        }
+        Pass
+        {
+            Name "MobileEditorDepth"
+            ColorMask 0 ZWrite On ZTest Always
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment CopyEditorDepth
             ENDHLSL
         }
     }

@@ -28,9 +28,20 @@ namespace UnityEditor.Rendering.HighDefinition
             var mode = serialized.FindProperty("m_RendererMode");
             EditorGUILayout.PropertyField(mode);
             if (mode.hasMultipleDifferentValues || mode.enumValueIndex != (int)HDRendererMode.Mobile) return false;
-            EditorGUILayout.HelpBox("Experimental Android Vulkan renderer. Desktop Frame Settings do not apply. " +
-                "Lit/Unlit UV0 materials only; use the content audit before building. 1080p/60 FPS requires device measurement.", MessageType.Info);
-            EditorGUILayout.PropertyField(serialized.FindProperty("m_MobileSettings"), true);
+            EditorGUILayout.HelpBox("Android Vulkan forward renderer. Exposure Control follows HDRP Frame Settings. Other Mobile features are configured below. Performance requires device measurement.", MessageType.Info);
+            var settings = serialized.FindProperty("m_MobileSettings");
+            void Group(string title, params string[] fields)
+            {
+                EditorGUILayout.LabelField(title, EditorStyles.boldLabel);
+                foreach (var field in fields) EditorGUILayout.PropertyField(settings.FindPropertyRelative(field));
+            }
+            Group("Resolution", "fixed1080p", "renderScale");
+            Group("Lighting and Shadows", "additionalLightsPerObject", "mainLightShadows", "shadowAtlasSize", "shadowDistance", "cascadeSplit", "cascadeBlend", "shadowNormalBias");
+            Group("Sky and Fog", "sky", "skyFallback", "skyIntensity", "fog", "fogColor", "fogStart", "fogEnd");
+            Group("Environment Lighting", "environmentLighting", "environmentResolution", "environmentDiffuseSource", "environmentJobsPerFrame");
+            Group("Exposure and Post Processing", "meteringResolution", "fxaa", "bloom");
+            Group("Diagnostics", "drawUnsupportedMaterials");
+            if (GUILayout.Button("Open Mobile Settings and Diagnostics")) MobileSettingsWindow.Open();
             EditorGUILayout.PropertyField(serialized.FindProperty("m_MobileResources"), true);
             if (GUILayout.Button("Assign Mobile Resources"))
             {
@@ -54,10 +65,12 @@ namespace UnityEditor.Rendering.HighDefinition
         [MenuItem("Rendering/HDRP Mobile/Audit Loaded Scenes")]
         static void AuditLoadedScenes()
         {
-            var issues = new List<string>();
-            for (int i = 0; i < SceneManager.sceneCount; i++) AuditScene(SceneManager.GetSceneAt(i), issues);
+            var issues = new List<MobileIssue>();
+            for (int i = 0; i < SceneManager.sceneCount; i++) MobileDiagnostics.Collect(SceneManager.GetSceneAt(i), issues);
             if (issues.Count == 0) Debug.Log("HDRP Mobile: no unsupported content found in loaded scenes.");
-            else Debug.LogWarning("HDRP Mobile content audit:\n" + string.Join("\n", issues));
+            foreach (var issue in issues)
+                if (issue.severity == MessageType.Error) Debug.LogError(issue.message, issue.context);
+                else Debug.LogWarning(issue.message, issue.context);
         }
 
         internal static void AuditMaterial(Material material, string location, List<string> issues)
@@ -82,10 +95,18 @@ namespace UnityEditor.Rendering.HighDefinition
                 Unsupported("_DisplacementMode", 0, "displacement is unsupported");
                 Unsupported("_RefractionModel", 0, "refraction is unsupported");
                 Unsupported("_CoatMask", 0, "clear coat is unsupported");
-                if (material.IsKeywordEnabled("_DETAIL_MAP")) issues.Add(location + ": " + material.name + " uses an unsupported detail map.");
+                if (material.IsKeywordEnabled("_DETAIL_MAP") && material.GetFloat("_UVDetail") > 1) issues.Add(location + ": " + material.name + " supports Detail UV0/UV1 only.");
             }
             Unsupported("_UVEmissive", 0, "only UV0 emission mapping is supported");
             Unsupported("_DistortionEnable", 0, "distortion is unsupported");
+        }
+
+        internal static void DrawMaterialSupport(MaterialEditor editor)
+        {
+            if (!(GraphicsSettings.currentRenderPipeline is HDRenderPipelineAsset asset) || asset.rendererMode != HDRendererMode.Mobile) return;
+            var issues = new List<string>();
+            foreach (var target in editor.targets) AuditMaterial(target as Material, "Mobile", issues);
+            EditorGUILayout.HelpBox(issues.Count == 0 ? "Mobile: Standard Lit/Unlit, base/emission UV0, Detail UV0/UV1. Premultiply expects premultiplied RGB. Desktop material settings are preserved." : string.Join("\n", issues), issues.Count == 0 ? MessageType.Info : MessageType.Warning);
         }
 
         internal static void AuditScene(Scene scene, List<string> issues)
@@ -111,9 +132,9 @@ namespace UnityEditor.Rendering.HighDefinition
                         if (light.lightmapBakeType != LightmapBakeType.Baked) issues.Add(scene.path + "/" + light.name + ": realtime area lights are unsupported.");
                 }
                 foreach (var probe in root.GetComponentsInChildren<ReflectionProbe>(true))
-                    if (probe.mode == ReflectionProbeMode.Realtime || probe.boxProjection
+                    if (probe.mode == ReflectionProbeMode.Realtime
                         || (probe.TryGetComponent<HDAdditionalReflectionData>(out var hdProbe) && hdProbe.mode == ProbeSettings.Mode.Realtime))
-                        issues.Add(scene.path + "/" + probe.name + ": realtime/box-projected reflection probes are unsupported.");
+                        issues.Add(scene.path + "/" + probe.name + ": realtime reflection probes are unsupported.");
                 foreach (var camera in root.GetComponentsInChildren<Camera>(true))
                     if (camera.clearFlags == CameraClearFlags.Nothing || camera.clearFlags == CameraClearFlags.Depth)
                         issues.Add(scene.path + "/" + camera.name + ": camera stacking/preserved color is unsupported; mobile clears every camera.");
@@ -133,8 +154,8 @@ namespace UnityEditor.Rendering.HighDefinition
                         if (!component.active || !component.parameters.Any(p => p.overrideState)) continue;
                         if (component is Exposure exposure)
                         {
-                            if (exposure.mode.value != ExposureMode.Fixed && exposure.mode.value != ExposureMode.UsePhysicalCamera)
-                                issues.Add(scene.path + "/" + volume.name + ": Mobile uses Fixed Exposure and Compensation as the fallback for automatic exposure; verify the fixed EV for this scene.");
+                            if (exposure.mode.value == ExposureMode.AutomaticHistogram || exposure.mode.value == ExposureMode.CurveMapping)
+                                issues.Add(scene.path + "/" + volume.name + ": Mobile uses Automatic geometric-mean metering; histogram/curve controls are ignored.");
                         }
                         else if (component is Tonemapping tone)
                         {
@@ -147,7 +168,12 @@ namespace UnityEditor.Rendering.HighDefinition
                                 issues.Add(scene.path + "/" + volume.name + ": Mobile HDRI sky ignores backplate and distortion.");
                         }
                         else if (component is PhysicallyBasedSky)
-                            issues.Add(scene.path + "/" + volume.name + ": Mobile uses a procedural sky approximation; atmosphere, clouds and realtime environment lighting are not evaluated.");
+                            issues.Add(scene.path + "/" + volume.name + ": Mobile uses a procedural sky approximation for background and cached environment IBL; full atmosphere and clouds are not evaluated.");
+                        else if (component is IndirectLightingController indirect)
+                        {
+                            if (indirect.GetIndirectDiffuseLightingLayers() != 255 || indirect.GetReflectionLightingLayers() != 255)
+                                issues.Add(scene.path + "/" + volume.name + ": Mobile applies indirect-lighting multipliers globally; layer masks are unsupported.");
+                        }
                         else if (component is VisualEnvironment environment)
                         {
                             if (environment.cloudType.value != 0) issues.Add(scene.path + "/" + volume.name + ": Mobile sky fallback does not render clouds.");

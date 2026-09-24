@@ -10,9 +10,53 @@ using UnityEngine.SceneManagement;
 
 namespace UnityEditor.Rendering.HighDefinition
 {
+    using CED = CoreEditorDrawer<SerializedObject>;
+    using Styles = HDRenderPipelineUI.Styles;
+
     internal static class MobileRenderEditor
     {
         const string Root = "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/";
+
+        enum Expandable
+        {
+            Rendering = 1 << 0, Lighting = 1 << 1, PostProcessing = 1 << 2,
+            Resolution = 1 << 3, Sky = 1 << 4, Environment = 1 << 5,
+            Fog = 1 << 6, Shadows = 1 << 7, DirectionalShadows = 1 << 8,
+            Lights = 1 << 9, Exposure = 1 << 10, Resources = 1 << 11, Diagnostics = 1 << 12
+        }
+
+        // Keep Mobile's foldout preferences separate from Desktop's.
+        static readonly ExpandedState<Expandable, HDRenderPipelineAsset> k_ExpandedState =
+            new ExpandedState<Expandable, HDRenderPipelineAsset>(Expandable.Rendering | Expandable.Resolution, "HDRP:Mobile");
+        const FoldoutOption SubFoldout = FoldoutOption.Indent | FoldoutOption.SubFoldout;
+        static readonly CED.IDrawer k_Inspector = CED.Group(
+            CED.FoldoutGroup(Styles.renderingSectionTitle, Expandable.Rendering, k_ExpandedState,
+                CED.FoldoutGroup("Resolution", Expandable.Resolution, k_ExpandedState, SubFoldout, DrawResolution)),
+            CED.FoldoutGroup(Styles.lightingSectionTitle, Expandable.Lighting, k_ExpandedState,
+                CED.FoldoutGroup(Styles.skySubTitle, Expandable.Sky, k_ExpandedState, SubFoldout, DrawSky),
+                CED.FoldoutGroup("Environment Lighting", Expandable.Environment, k_ExpandedState, SubFoldout, DrawEnvironment),
+                CED.FoldoutGroup("Fog", Expandable.Fog, k_ExpandedState, SubFoldout, DrawFog),
+                CED.FoldoutGroup(Styles.shadowSubTitle, Expandable.Shadows, k_ExpandedState, SubFoldout,
+                    CED.FoldoutGroup(Styles.directionalLightshadowSubTitle, Expandable.DirectionalShadows, k_ExpandedState, SubFoldout, DrawShadows)),
+                CED.FoldoutGroup(Styles.lightLoopSubTitle, Expandable.Lights, k_ExpandedState, SubFoldout, DrawLights)),
+            CED.FoldoutGroup(Styles.postProcessSectionTitle, Expandable.PostProcessing, k_ExpandedState,
+                CED.Group(DrawPostProcessing),
+                CED.FoldoutGroup("Exposure", Expandable.Exposure, k_ExpandedState, SubFoldout, DrawExposure)),
+            CED.FoldoutGroup("Resources", Expandable.Resources, k_ExpandedState, DrawResources),
+            CED.FoldoutGroup("Diagnostics", Expandable.Diagnostics, k_ExpandedState, DrawDiagnostics));
+
+        static SerializedProperty Setting(SerializedObject serialized, string name)
+            => serialized.FindProperty("m_MobileSettings").FindPropertyRelative(name);
+
+        static void Field(SerializedObject serialized, string name, string label, string tooltip)
+            => EditorGUILayout.PropertyField(Setting(serialized, name), EditorGUIUtility.TrTextContent(label, tooltip));
+
+        static bool Disabled(SerializedObject serialized, string name)
+        {
+            var property = Setting(serialized, name);
+            // Mixed selections remain editable even when the first asset disables the feature.
+            return !property.hasMultipleDifferentValues && !property.boolValue;
+        }
 
         internal static void AssignResources(HDRenderPipelineAsset asset)
         {
@@ -27,30 +71,106 @@ namespace UnityEditor.Rendering.HighDefinition
         {
             var mode = serialized.FindProperty("m_RendererMode");
             EditorGUILayout.PropertyField(mode);
-            if (mode.hasMultipleDifferentValues || mode.enumValueIndex != (int)HDRendererMode.Mobile) return false;
-            EditorGUILayout.HelpBox("Android Vulkan forward renderer. Exposure Control follows HDRP Frame Settings. Other Mobile features are configured below. Performance requires device measurement.", MessageType.Info);
-            var settings = serialized.FindProperty("m_MobileSettings");
-            void Group(string title, params string[] fields)
+            if (mode.hasMultipleDifferentValues)
             {
-                EditorGUILayout.LabelField(title, EditorStyles.boldLabel);
-                foreach (var field in fields) EditorGUILayout.PropertyField(settings.FindPropertyRelative(field));
+                EditorGUILayout.HelpBox("Select assets with the same Renderer Mode to edit renderer settings together.", MessageType.Info);
+                return true;
             }
-            Group("Resolution", "fixed1080p", "renderScale");
-            Group("Lighting and Shadows", "additionalLightsPerObject", "mainLightShadows", "shadowAtlasSize", "shadowDistance", "cascadeSplit", "cascadeBlend", "shadowNormalBias");
-            Group("Sky and Fog", "sky", "skyFallback", "skyIntensity", "fog", "fogColor", "fogStart", "fogEnd");
-            Group("Environment Lighting", "environmentLighting", "environmentResolution", "environmentDiffuseSource", "environmentJobsPerFrame");
-            Group("Exposure and Post Processing", "meteringResolution", "fxaa", "bloom");
-            Group("Diagnostics", "drawUnsupportedMaterials");
-            if (GUILayout.Button("Open Mobile Settings and Diagnostics")) MobileSettingsWindow.Open();
-            EditorGUILayout.PropertyField(serialized.FindProperty("m_MobileResources"), true);
+            if (mode.enumValueIndex != (int)HDRendererMode.Mobile) return false;
+            EditorGUILayout.HelpBox("Android Vulkan forward renderer. Exposure Control follows HDRP Frame Settings. Supported Volume overrides control exposure and post-processing; configure Mobile features below.", MessageType.Info);
+            if (serialized.targetObjects.Cast<HDRenderPipelineAsset>().Any(asset => !asset.mobileResources.isValid))
+                EditorGUILayout.HelpBox("Mobile shader resources are missing. Expand Resources and use Assign Mobile Resources.", MessageType.Warning);
+            k_Inspector.Draw(serialized, null);
+            return true;
+        }
+
+        static void DrawResolution(SerializedObject serialized, Editor owner)
+        {
+            Field(serialized, "fixed1080p", "Fixed 1080p Resolution", "Use a 1920 x 1080 base resolution for Game cameras targeting the display. Preview cameras and RenderTextures retain their dimensions. Render Scale applies in both modes.");
+            Field(serialized, "renderScale", "Render Scale", "Scale the base width and height before upscaling. This is a fixed scale, not Desktop dynamic resolution.");
+        }
+
+        static void DrawLights(SerializedObject serialized, Editor owner)
+        {
+            Field(serialized, "additionalLightsPerObject", "Maximum Additional Lights per Object", "Maximum additional forward lights evaluated per object (0-4), in addition to the main directional light.");
+        }
+
+        static void DrawShadows(SerializedObject serialized, Editor owner)
+        {
+            Field(serialized, "mainLightShadows", "Main Light Shadows", "Enable realtime shadows for the main directional light. Mobile uses two cascades and does not support local realtime shadows.");
+            using (new EditorGUI.DisabledScope(Disabled(serialized, "mainLightShadows")))
+            {
+                Field(serialized, "shadowAtlasSize", "Shadow Atlas Resolution", "Atlas size in pixels. Rounded up to a power of two and clamped to 256-2048 at runtime; each cascade uses half the atlas width.");
+                Field(serialized, "shadowDistance", "Maximum Shadow Distance", "Maximum distance in world units over which directional shadows are rendered.");
+                Field(serialized, "cascadeSplit", "Cascade Split", "First cascade split as a fraction of the shadow distance. Mobile always uses two cascades.");
+                Field(serialized, "cascadeBlend", "Cascade Blend", "Fraction of the first cascade radius used to blend into the second cascade. Zero disables blending.");
+                Field(serialized, "shadowNormalBias", "Normal Bias", "Offset shadow receivers along the surface normal to reduce self-shadowing.");
+            }
+        }
+
+        static void DrawSky(SerializedObject serialized, Editor owner)
+        {
+            Field(serialized, "sky", "Sky Cubemap Override", "Override the sky for both the background and environment lighting. Leave empty to use the sky fallback.");
+            var sky = Setting(serialized, "sky");
+            using (new EditorGUI.DisabledScope(!sky.hasMultipleDifferentValues && sky.objectReferenceValue == null))
+                Field(serialized, "skyIntensity", "Sky Intensity Multiplier", "Intensity of the explicit Sky Cubemap Override only. Volume and legacy skies use their own intensity controls.");
+            using (new EditorGUI.DisabledScope(!sky.hasMultipleDifferentValues && sky.objectReferenceValue != null))
+                Field(serialized, "skyFallback", "Use Volume / Skybox Fallback", "Without a cubemap override, use Volume HDRI/Gradient sky, a lightweight physical sky approximation, or a supported legacy skybox.");
+        }
+
+        static void DrawEnvironment(SerializedObject serialized, Editor owner)
+        {
+            Field(serialized, "environmentLighting", "Sky Lighting", "Generate diffuse irradiance and GGX reflections from the resolved sky. Lightmaps retain priority.");
+            using (new EditorGUI.DisabledScope(Disabled(serialized, "environmentLighting")))
+            {
+                Field(serialized, "environmentResolution", "Reflection Resolution", "Face resolution of the sky reflection cache: Low = 32 pixels, High = 64 pixels.");
+                Field(serialized, "environmentDiffuseSource", "Diffuse Lighting Source", "Prefer Baked Probes uses native SH when the scene has baked probes, otherwise sky irradiance. Runtime Sky uses sky irradiance on all non-lightmapped objects.");
+                Field(serialized, "environmentJobsPerFrame", "Environment Update Budget", "Faces/mips filtered per update after initial warm-up. The previous complete cache remains visible until the new generation is ready.");
+            }
+        }
+
+        static void DrawFog(SerializedObject serialized, Editor owner)
+        {
+            Field(serialized, "fog", "Fog", "Enable Mobile linear distance fog. This is not Desktop volumetric fog and does not use the Fog Volume override.");
+            using (new EditorGUI.DisabledScope(Disabled(serialized, "fog")))
+            {
+                Field(serialized, "fogColor", "Fog Color", "Color of the Mobile distance fog.");
+                Field(serialized, "fogStart", "Start Distance", "Distance in world units where fog starts.");
+                Field(serialized, "fogEnd", "End Distance", "Distance in world units where fog reaches full opacity. Set higher than Start Distance.");
+            }
+        }
+
+        static void DrawPostProcessing(SerializedObject serialized, Editor owner)
+        {
+            Field(serialized, "fxaa", "FXAA", "Enable fast approximate anti-aliasing in the Mobile composite pass.");
+            Field(serialized, "bloom", "Bloom", "Enable Mobile bloom. Configure intensity in the Bloom Volume override; Mobile uses a simplified downsample filter.");
+        }
+
+        static void DrawExposure(SerializedObject serialized, Editor owner)
+        {
+            EditorGUILayout.HelpBox("Enable Exposure Control in HDRP Frame Settings. Configure exposure mode and adaptation in the Exposure Volume override. Mobile uses geometric-mean metering for automatic exposure.", MessageType.Info);
+            Field(serialized, "meteringResolution", "Metering Resolution", "Automatic exposure meter resolution: Low = 64, Medium = 128, High = 256 pixels per side.");
+        }
+
+        static void DrawResources(SerializedObject serialized, Editor owner)
+        {
+            var resources = serialized.FindProperty("m_MobileResources");
+            EditorGUILayout.PropertyField(resources.FindPropertyRelative("compositeShader"));
+            EditorGUILayout.PropertyField(resources.FindPropertyRelative("skyShader"));
+            EditorGUILayout.PropertyField(resources.FindPropertyRelative("errorShader"));
             if (GUILayout.Button("Assign Mobile Resources"))
             {
                 serialized.ApplyModifiedProperties();
                 foreach (HDRenderPipelineAsset asset in serialized.targetObjects) AssignResources(asset);
                 serialized.Update();
             }
+        }
+
+        static void DrawDiagnostics(SerializedObject serialized, Editor owner)
+        {
+            Field(serialized, "drawUnsupportedMaterials", "Highlight Unsupported Materials", "Draw magenta for shaders without MobileForward. Scans loaded renderers every frame; disable after validation when profiling production performance.");
+            if (GUILayout.Button("Open Mobile Settings and Diagnostics")) MobileSettingsWindow.Open();
             if (GUILayout.Button("Audit Loaded Scenes")) AuditLoadedScenes();
-            return true;
         }
 
         [MenuItem("Assets/Create/Rendering/HDRP Mobile Pipeline Asset", priority = 303)]

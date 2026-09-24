@@ -1,0 +1,1 @@
+PASSED: 3 PlayMode cycles with domain reload, 3 without; no errors or owned material/RenderGraph/RenderTexture/VolumeComponent count growth.

@@ -1,0 +1,35 @@
+HDRP Mobile stability / exposure / sky validation
+Date: 2026-09-24
+Unity: 2022.3.17f1; HDRP: 14.0.9
+Disposable project: C:\Users\87246\AppData\Local\Temp\hdrp-mobile-validation\project
+
+Android Vulkan / IL2CPP Gradle export: Succeeded
+Gradle: 7.2; Unity bundled OpenJDK; NDK: 23.1
+Task: :launcher:assembleDebug --no-daemon
+Dependency download: FlClash HTTP/HTTPS proxy 127.0.0.1:7890
+Command JVM properties: -Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=7890 -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=7890
+Result: BUILD SUCCESSFUL in 4m 41s; 51 actionable tasks executed
+APK: C:\Users\87246\AppData\Local\Temp\hdrp-mobile-validation\project\mobile-android-project\launcher\build\outputs\apk\debug\launcher-debug.apk
+Size: 37756199 bytes
+SHA256: 4169FD63CAEBEE52ACA1531E6BE481A7303BC03D7E68C839A93F8165E678E5F1
+Package: com.hdrpdev.mobilebenchmark; version: 1.0 (1)
+ABI: arm64-v8a; required graphics feature: android.hardware.vulkan.version
+SDK: min 22, target 32 (validation build, not store-release configuration)
+apksigner verify: success; v1 and v2 signatures verified
+apksigner informational warnings: two META-INF Gradle/engine metadata entries are not protected by the JAR signature.
+
+Latest Editor rerun: 118 total, 118 passed, 0 failed, 0 skipped
+Includes GPU Instancing comparison with SRP Batcher disabled.
+Play Mode: 3 cycles with Domain Reload and 3 without; rendered and disposed each cycle.
+Desktop/mobile shader smoke: passed; shadow receiver changed pixels: 1040.
+
+Full local logs: C:\Users\87246\AppData\Local\Temp\hdrp-mobile-validation\
+  stability-export.log
+  stability-apk.log
+  stability-final-tests.log
+  stability-final-tests.xml
+  stability-play2.log
+  stability-render.log
+
+No Android device connected. APK install, device visuals, GPU captures, thermal soak,
+Adreno/Mali compatibility and 1920x1080 P95 <= 16.67 ms are NOT verified by this build.

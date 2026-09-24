@@ -1,0 +1,368 @@
+<?xml version="1.0" encoding="utf-8"?>
+<test-run id="2" testcasecount="76" result="Passed" total="76" passed="76" failed="0" inconclusive="0" skipped="0" asserts="0" engine-version="3.5.0.0" clr-version="4.0.30319.42000" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:02Z" duration="2.7763089">
+  <test-suite type="TestSuite" id="1349" name="HDRP Mobile Benchmark" fullname="HDRP Mobile Benchmark" runstate="Runnable" testcasecount="250" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:02Z" duration="2.776309" total="76" passed="76" failed="0" inconclusive="0" skipped="0" asserts="0">
+    <properties />
+    <test-suite type="Assembly" id="1685" name="Unity.RenderPipelines.HighDefinition.Editor.Tests.dll" fullname="C:/Users/87246/AppData/Local/Temp/hdrp-mobile-validation/project/Library/ScriptAssemblies/Unity.RenderPipelines.HighDefinition.Editor.Tests.dll" runstate="Runnable" testcasecount="76" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:02Z" duration="2.761657" total="76" passed="76" failed="0" inconclusive="0" skipped="0" asserts="0">
+      <properties>
+        <property name="_PID" value="16068" />
+        <property name="_APPDOMAIN" value="Unity Child Domain" />
+        <property name="platform" value="EditMode" />
+      </properties>
+      <test-suite type="TestSuite" id="1686" name="UnityEditor" fullname="UnityEditor" runstate="Runnable" testcasecount="13" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.145414" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1687" name="Rendering" fullname="UnityEditor.Rendering" runstate="Runnable" testcasecount="13" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.145093" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1688" name="HighDefinition" fullname="UnityEditor.Rendering.HighDefinition" runstate="Runnable" testcasecount="13" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.141093" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestSuite" id="1689" name="Tests" fullname="UnityEditor.Rendering.HighDefinition.Tests" runstate="Runnable" testcasecount="13" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.137495" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-suite type="TestFixture" id="1584" name="MobileRenderTests" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" testcasecount="13" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.133214" total="13" passed="13" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1597" name="AuditReportsUnsupportedMaterialsWithoutChangingThem" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.AuditReportsUnsupportedMaterialsWithoutChangingThem" methodname="AuditReportsUnsupportedMaterialsWithoutChangingThem" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="2124354445" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.053312" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1598" name="BackendDisposeIsIdempotentAndRestoresGlobalState" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.BackendDisposeIsIdempotentAndRestoresGlobalState" methodname="BackendDisposeIsIdempotentAndRestoresGlobalState" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="957504731" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.013852" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1585" name="BakedHDRPProbeBindsNativeCubeAndRestoresItOnDispose" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.BakedHDRPProbeBindsNativeCubeAndRestoresItOnDispose" methodname="BakedHDRPProbeBindsNativeCubeAndRestoresItOnDispose" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="640864248" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.021338" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1589" name="BenchmarkPercentilesUseNearestRankAndReportMissingTimings" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.BenchmarkPercentilesUseNearestRankAndReportMissingTimings" methodname="BenchmarkPercentilesUseNearestRankAndReportMissingTimings" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="1632524245" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.001729" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1588" name="DisposingPreviousMobileBackendDoesNotResetReplacement" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.DisposingPreviousMobileBackendDoesNotResetReplacement" methodname="DisposingPreviousMobileBackendDoesNotResetReplacement" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="1498658804" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.012234" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1586" name="ExplicitRenderTexturePreservesDimensionsAtFixed1080p" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.ExplicitRenderTexturePreservesDimensionsAtFixed1080p" methodname="ExplicitRenderTexturePreservesDimensionsAtFixed1080p" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="399883671" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.001765" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1590" name="LegacyAssetDefaultsToDesktop" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.LegacyAssetDefaultsToDesktop" methodname="LegacyAssetDefaultsToDesktop" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="634177352" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.001242" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1587" name="MobilePipelineDoesNotConstructDesktopManagers" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.MobilePipelineDoesNotConstructDesktopManagers" methodname="MobilePipelineDoesNotConstructDesktopManagers" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="451728692" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.008323" asserts="0">
+                  <properties />
+                </test-case>
+                <test-suite type="ParameterizedMethod" id="1596" name="PlatformGateDoesNotEnableOtherPlayers" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.PlatformGateDoesNotEnableOtherPlayers" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.004465" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+                  <properties />
+                  <test-case id="1591" name="PlatformGateDoesNotEnableOtherPlayers(Vulkan,False,True)" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.PlatformGateDoesNotEnableOtherPlayers(Vulkan,False,True)" methodname="PlatformGateDoesNotEnableOtherPlayers" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="697389466" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000535" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1592" name="PlatformGateDoesNotEnableOtherPlayers(Direct3D11,True,True)" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.PlatformGateDoesNotEnableOtherPlayers(Direct3D11,True,True)" methodname="PlatformGateDoesNotEnableOtherPlayers" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="1974027480" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000189" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1593" name="PlatformGateDoesNotEnableOtherPlayers(Direct3D11,False,False)" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.PlatformGateDoesNotEnableOtherPlayers(Direct3D11,False,False)" methodname="PlatformGateDoesNotEnableOtherPlayers" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="1789015665" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000149" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1594" name="PlatformGateDoesNotEnableOtherPlayers(OpenGLES3,False,False)" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.PlatformGateDoesNotEnableOtherPlayers(OpenGLES3,False,False)" methodname="PlatformGateDoesNotEnableOtherPlayers" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="971554640" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000145" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1595" name="PlatformGateDoesNotEnableOtherPlayers(Metal,False,False)" fullname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests.PlatformGateDoesNotEnableOtherPlayers(Metal,False,False)" methodname="PlatformGateDoesNotEnableOtherPlayers" classname="UnityEditor.Rendering.HighDefinition.Tests.MobileRenderTests" runstate="Runnable" seed="318394625" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000141" asserts="0">
+                    <properties />
+                  </test-case>
+                </test-suite>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+      <test-suite type="TestSuite" id="1690" name="UnityEngine" fullname="UnityEngine" runstate="Runnable" testcasecount="63" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:02Z" duration="2.614771" total="63" passed="63" failed="0" inconclusive="0" skipped="0" asserts="0">
+        <properties />
+        <test-suite type="TestSuite" id="1691" name="Rendering" fullname="UnityEngine.Rendering" runstate="Runnable" testcasecount="63" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:02Z" duration="2.613641" total="63" passed="63" failed="0" inconclusive="0" skipped="0" asserts="0">
+          <properties />
+          <test-suite type="TestSuite" id="1692" name="HighDefinition" fullname="UnityEngine.Rendering.HighDefinition" runstate="Runnable" testcasecount="63" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:02Z" duration="2.609252" total="63" passed="63" failed="0" inconclusive="0" skipped="0" asserts="0">
+            <properties />
+            <test-suite type="TestSuite" id="1693" name="Tests" fullname="UnityEngine.Rendering.HighDefinition.Tests" runstate="Runnable" testcasecount="63" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:02Z" duration="2.605372" total="63" passed="63" failed="0" inconclusive="0" skipped="0" asserts="0">
+              <properties />
+              <test-suite type="TestFixture" id="1599" name="CopyToTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests" classname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests" runstate="Runnable" testcasecount="7" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.033675" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-suite type="ParameterizedMethod" id="1607" name="TestType" fullname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests.TestType" classname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests" runstate="Runnable" testcasecount="7" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.029670" total="7" passed="7" failed="0" inconclusive="0" skipped="0" asserts="0">
+                  <properties />
+                  <test-case id="1600" name="VisibilitySelfTest.CopyTo" fullname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests.VisibilitySelfTest.CopyTo" methodname="TestType" classname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests" runstate="Runnable" seed="1899956366" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.004940" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1601" name="FilterSelfTest.CopyTo" fullname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests.FilterSelfTest.CopyTo" methodname="TestType" classname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests" runstate="Runnable" seed="323383040" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000605" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1602" name="TypeSelfTest.CopyTo" fullname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests.TypeSelfTest.CopyTo" methodname="TestType" classname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests" runstate="Runnable" seed="87514469" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.007151" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1603" name="ScalableSettingValue`1.CopyTo" fullname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests.ScalableSettingValue`1.CopyTo" methodname="TestType" classname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests" runstate="Runnable" seed="1478486020" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000922" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1604" name="InfluenceVolume.CopyTo" fullname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests.InfluenceVolume.CopyTo" methodname="TestType" classname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests" runstate="Runnable" seed="1557630721" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.001244" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1605" name="HDAdditionalCameraData.CopyTo" fullname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests.HDAdditionalCameraData.CopyTo" methodname="TestType" classname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests" runstate="Runnable" seed="1979997142" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.003128" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1606" name="HDAdditionalLightData.CopyTo" fullname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests.HDAdditionalLightData.CopyTo" methodname="TestType" classname="UnityEngine.Rendering.HighDefinition.Tests.CopyToTests" runstate="Runnable" seed="46780498" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.007937" asserts="0">
+                    <properties />
+                  </test-case>
+                </test-suite>
+              </test-suite>
+              <test-suite type="TestFixture" id="1608" name="FrameSettingsTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests" classname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.584910" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-suite type="ParameterizedMethod" id="1613" name="MigrationTest" fullname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests.MigrationTest" classname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.439855" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                  <properties />
+                  <test-case id="1610" name="MigrationTest(UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests+LegacyFrameSettings)" fullname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests.MigrationTest(UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests+LegacyFrameSettings)" methodname="MigrationTest" classname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests" runstate="Runnable" seed="542827907" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.203647" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1611" name="MigrationTest(UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests+LegacyFrameSettings)" fullname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests.MigrationTest(UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests+LegacyFrameSettings)" methodname="MigrationTest" classname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests" runstate="Runnable" seed="38220064" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.116621" asserts="0">
+                    <properties>
+                      <property name="childIndex" value="2" />
+                    </properties>
+                  </test-case>
+                  <test-case id="1612" name="MigrationTest(UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests+LegacyFrameSettings)" fullname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests.MigrationTest(UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests+LegacyFrameSettings)" methodname="MigrationTest" classname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests" runstate="Runnable" seed="1665925442" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.116407" asserts="0">
+                    <properties>
+                      <property name="childIndex" value="3" />
+                    </properties>
+                  </test-case>
+                </test-suite>
+                <test-case id="1609" name="NoDoubleBitIndex" fullname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests.NoDoubleBitIndex" methodname="NoDoubleBitIndex" classname="UnityEngine.Rendering.HighDefinition.Tests.FrameSettingsTests" runstate="Runnable" seed="1146042265" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.004917" asserts="0">
+                  <properties />
+                  <output><![CDATA[Available bit in FrameSettings: 7 25 50 51 52 53 54 55 57 58 59 69 70 71 72 73 74 75 76 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 
+]]></output>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1614" name="HDAdditionalLightDataTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" runstate="Runnable" testcasecount="9" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:01Z" duration="0.246706" total="9" passed="9" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <output><![CDATA[You are trying to create a MonoBehaviour using the 'new' keyword.  This is not allowed.  MonoBehaviours can only be added using AddComponent(). Alternatively, your script can inherit from ScriptableObject or no base class at all
+]]></output>
+                <test-suite type="ParameterizedMethod" id="1623" name="ComputedType" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests.ComputedType" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" runstate="Runnable" testcasecount="8" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.014956" total="8" passed="8" failed="0" inconclusive="0" skipped="0" asserts="0">
+                  <properties />
+                  <test-case id="1615" name="Directional" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests.Directional" methodname="ComputedType" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" runstate="Runnable" seed="148476893" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.005625" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1616" name="Point" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests.Point" methodname="ComputedType" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" runstate="Runnable" seed="2077874971" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000908" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1617" name="Spot with cone shape" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests.Spot with cone shape" methodname="ComputedType" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" runstate="Runnable" seed="575307024" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000445" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1618" name="Spot with box shape" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests.Spot with box shape" methodname="ComputedType" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" runstate="Runnable" seed="792607042" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.003274" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1619" name="Spot with pyramid shape" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests.Spot with pyramid shape" methodname="ComputedType" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" runstate="Runnable" seed="923668854" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.001073" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1620" name="Area with rectangle shape" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests.Area with rectangle shape" methodname="ComputedType" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" runstate="Runnable" seed="1063258305" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000721" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1621" name="Area with tube shape" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests.Area with tube shape" methodname="ComputedType" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" runstate="Runnable" seed="2009476653" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000630" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1622" name="Area with disc shape" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests.Area with disc shape" methodname="ComputedType" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" runstate="Runnable" seed="2118848900" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:00Z" duration="0.000491" asserts="0">
+                    <properties />
+                  </test-case>
+                </test-suite>
+                <test-case id="1624" name="HDLightUtils_IESProfileAPI" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests.HDLightUtils_IESProfileAPI" methodname="HDLightUtils_IESProfileAPI" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalLightDataTests" runstate="Runnable" seed="1402918192" result="Passed" start-time="2026-09-23 16:06:00Z" end-time="2026-09-23 16:06:01Z" duration="0.222173" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1674" name="HDAdditionalReflectionDataTests+MigrateFromLegacyProbe" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:01Z" duration="0.450036" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-suite type="ParameterizedMethod" id="1679" name="Test" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe.Test" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:01Z" duration="0.443695" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+                  <properties />
+                  <test-case id="1675" name="Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe+LegacyProbeData)" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe.Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe+LegacyProbeData)" methodname="Test" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe" runstate="Runnable" seed="1836824450" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:01Z" duration="0.115832" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1676" name="Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe+LegacyProbeData)" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe.Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe+LegacyProbeData)" methodname="Test" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe" runstate="Runnable" seed="3248617" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:01Z" duration="0.110730" asserts="0">
+                    <properties>
+                      <property name="childIndex" value="2" />
+                    </properties>
+                  </test-case>
+                  <test-case id="1677" name="Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe+LegacyProbeData)" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe.Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe+LegacyProbeData)" methodname="Test" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe" runstate="Runnable" seed="1366730605" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:01Z" duration="0.107675" asserts="0">
+                    <properties>
+                      <property name="childIndex" value="3" />
+                    </properties>
+                  </test-case>
+                  <test-case id="1678" name="Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe+LegacyProbeData)" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe.Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe+LegacyProbeData)" methodname="Test" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateFromLegacyProbe" runstate="Runnable" seed="1637943511" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:01Z" duration="0.108300" asserts="0">
+                    <properties>
+                      <property name="childIndex" value="4" />
+                    </properties>
+                  </test-case>
+                </test-suite>
+              </test-suite>
+              <test-suite type="TestFixture" id="1669" name="HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:01Z" duration="0.356110" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-suite type="ParameterizedMethod" id="1673" name="Test" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures.Test" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:01Z" duration="0.350181" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                  <properties />
+                  <test-case id="1670" name="Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures+LegacyProbeData)" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures.Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures+LegacyProbeData)" methodname="Test" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures" runstate="Runnable" seed="2058504845" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:01Z" duration="0.123530" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1671" name="Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures+LegacyProbeData)" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures.Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures+LegacyProbeData)" methodname="Test" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures" runstate="Runnable" seed="59881761" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:01Z" duration="0.110765" asserts="0">
+                    <properties>
+                      <property name="childIndex" value="2" />
+                    </properties>
+                  </test-case>
+                  <test-case id="1672" name="Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures+LegacyProbeData)" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures.Test(UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures+LegacyProbeData)" methodname="Test" classname="UnityEngine.Rendering.HighDefinition.Tests.HDAdditionalReflectionDataTests+MigrateReflectionProbeFromVersion_ModeAndTextures" runstate="Runnable" seed="942587605" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:01Z" duration="0.114965" asserts="0">
+                    <properties>
+                      <property name="childIndex" value="3" />
+                    </properties>
+                  </test-case>
+                </test-suite>
+              </test-suite>
+              <test-suite type="TestFixture" id="1625" name="HDGlobalSettingsTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests" classname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:02Z" duration="0.485535" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <output><![CDATA[You are trying to create a MonoBehaviour using the 'new' keyword.  This is not allowed.  MonoBehaviours can only be added using AddComponent(). Alternatively, your script can inherit from ScriptableObject or no base class at all
+]]></output>
+                <test-case id="1630" name="DiffusionProfile_AutoRegister" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests.DiffusionProfile_AutoRegister" methodname="DiffusionProfile_AutoRegister" classname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests" runstate="Runnable" seed="2085237603" result="Passed" start-time="2026-09-23 16:06:01Z" end-time="2026-09-23 16:06:02Z" duration="0.266624" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1627" name="HDRPFrameRendered_EnsureGlobalSettingsIfNullAssigned" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests.HDRPFrameRendered_EnsureGlobalSettingsIfNullAssigned" methodname="HDRPFrameRendered_EnsureGlobalSettingsIfNullAssigned" classname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests" runstate="Runnable" seed="1181662338" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.048707" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1626" name="HDRPFrameRendered_GlobalSettingsShouldBeAssigned" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests.HDRPFrameRendered_GlobalSettingsShouldBeAssigned" methodname="HDRPFrameRendered_GlobalSettingsShouldBeAssigned" classname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests" runstate="Runnable" seed="1579754478" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.052198" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1628" name="Undo_HDRPActive_ChangeGlobalSettings" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests.Undo_HDRPActive_ChangeGlobalSettings" methodname="Undo_HDRPActive_ChangeGlobalSettings" classname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests" runstate="Runnable" seed="1068437029" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.057907" asserts="0">
+                  <properties>
+                    <property name="Description" value="Case 1342987 - Support undo on Global Settings assignation " />
+                  </properties>
+                </test-case>
+                <test-case id="1629" name="Undo_HDRPActive_UnregisterGlobalSettings" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests.Undo_HDRPActive_UnregisterGlobalSettings" methodname="Undo_HDRPActive_UnregisterGlobalSettings" classname="UnityEngine.Rendering.HighDefinition.Tests.HDGlobalSettingsTests" runstate="Runnable" seed="654358039" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.051723" asserts="0">
+                  <properties>
+                    <property name="Description" value="Case 1342987 - Support undo on Global Settings assignation " />
+                  </properties>
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1631" name="HDRenderUtilitiesTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDRenderUtilitiesTests" classname="UnityEngine.Rendering.HighDefinition.Tests.HDRenderUtilitiesTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.059911" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1633" name="RenderThrowWhenFrameSettingsIsNull" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDRenderUtilitiesTests.RenderThrowWhenFrameSettingsIsNull" methodname="RenderThrowWhenFrameSettingsIsNull" classname="UnityEngine.Rendering.HighDefinition.Tests.HDRenderUtilitiesTests" runstate="Runnable" seed="1353291897" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.001576" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1634" name="RenderThrowWhenTargetIsNotARenderTextureForTex2DRendering" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDRenderUtilitiesTests.RenderThrowWhenTargetIsNotARenderTextureForTex2DRendering" methodname="RenderThrowWhenTargetIsNotARenderTextureForTex2DRendering" classname="UnityEngine.Rendering.HighDefinition.Tests.HDRenderUtilitiesTests" runstate="Runnable" seed="445279154" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000283" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1632" name="RenderThrowWhenTargetIsNull" fullname="UnityEngine.Rendering.HighDefinition.Tests.HDRenderUtilitiesTests.RenderThrowWhenTargetIsNull" methodname="RenderThrowWhenTargetIsNull" classname="UnityEngine.Rendering.HighDefinition.Tests.HDRenderUtilitiesTests" runstate="Runnable" seed="883420591" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000272" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1635" name="MigrationTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.MigrationTests" classname="UnityEngine.Rendering.HighDefinition.Tests.MigrationTests" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.009017" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1637" name="MigrationDescriptionMigrate" fullname="UnityEngine.Rendering.HighDefinition.Tests.MigrationTests.MigrationDescriptionMigrate" methodname="MigrationDescriptionMigrate" classname="UnityEngine.Rendering.HighDefinition.Tests.MigrationTests" runstate="Runnable" seed="2017747663" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.002296" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1636" name="MigrationStepMigrate" fullname="UnityEngine.Rendering.HighDefinition.Tests.MigrationTests.MigrationStepMigrate" methodname="MigrationStepMigrate" classname="UnityEngine.Rendering.HighDefinition.Tests.MigrationTests" runstate="Runnable" seed="833622628" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000469" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1680" name="PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures" fullname="UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures" classname="UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.331793" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-suite type="ParameterizedMethod" id="1684" name="Test" fullname="UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures.Test" classname="UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.330942" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                  <properties />
+                  <test-case id="1681" name="Test(UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures+LegacyProbeData)" fullname="UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures.Test(UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures+LegacyProbeData)" methodname="Test" classname="UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures" runstate="Runnable" seed="921789305" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.112744" asserts="0">
+                    <properties />
+                  </test-case>
+                  <test-case id="1682" name="Test(UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures+LegacyProbeData)" fullname="UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures.Test(UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures+LegacyProbeData)" methodname="Test" classname="UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures" runstate="Runnable" seed="1606100060" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.107669" asserts="0">
+                    <properties>
+                      <property name="childIndex" value="2" />
+                    </properties>
+                  </test-case>
+                  <test-case id="1683" name="Test(UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures+LegacyProbeData)" fullname="UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures.Test(UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures+LegacyProbeData)" methodname="Test" classname="UnityEngine.Rendering.HighDefinition.Tests.PlanarReflectionProbeTests+MigratePlanarProbeFromVersion_ModeAndTextures" runstate="Runnable" seed="1151618492" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.109605" asserts="0">
+                    <properties>
+                      <property name="childIndex" value="3" />
+                    </properties>
+                  </test-case>
+                </test-suite>
+              </test-suite>
+              <test-suite type="TestFixture" id="1662" name="ProbeCameraCacheTest" fullname="UnityEngine.Rendering.HighDefinition.Tests.ProbeCameraCacheTest" classname="UnityEngine.Rendering.HighDefinition.Tests.ProbeCameraCacheTest" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.012403" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1664" name="GetOrCreate_And_Clear_Works" fullname="UnityEngine.Rendering.HighDefinition.Tests.ProbeCameraCacheTest.GetOrCreate_And_Clear_Works" methodname="GetOrCreate_And_Clear_Works" classname="UnityEngine.Rendering.HighDefinition.Tests.ProbeCameraCacheTest" runstate="Runnable" seed="185601340" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.003589" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1665" name="GetOrCreate_And_ClearCamerasUnusedFor_Works" fullname="UnityEngine.Rendering.HighDefinition.Tests.ProbeCameraCacheTest.GetOrCreate_And_ClearCamerasUnusedFor_Works" methodname="GetOrCreate_And_ClearCamerasUnusedFor_Works" classname="UnityEngine.Rendering.HighDefinition.Tests.ProbeCameraCacheTest" runstate="Runnable" seed="617436071" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.001308" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1663" name="GetOrCreate_And_Dispose_Works" fullname="UnityEngine.Rendering.HighDefinition.Tests.ProbeCameraCacheTest.GetOrCreate_And_Dispose_Works" methodname="GetOrCreate_And_Dispose_Works" classname="UnityEngine.Rendering.HighDefinition.Tests.ProbeCameraCacheTest" runstate="Runnable" seed="1532967252" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000668" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1666" name="UsingDisposedObject_Throws" fullname="UnityEngine.Rendering.HighDefinition.Tests.ProbeCameraCacheTest.UsingDisposedObject_Throws" methodname="UsingDisposedObject_Throws" classname="UnityEngine.Rendering.HighDefinition.Tests.ProbeCameraCacheTest" runstate="Runnable" seed="2033748611" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000515" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1638" name="ProbeSettingsUtilitiesTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.ProbeSettingsUtilitiesTests" classname="UnityEngine.Rendering.HighDefinition.Tests.ProbeSettingsUtilitiesTests" runstate="Runnable" testcasecount="2" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.004645" total="2" passed="2" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1640" name="ApplyMirroredReferenceTransform" fullname="UnityEngine.Rendering.HighDefinition.Tests.ProbeSettingsUtilitiesTests.ApplyMirroredReferenceTransform" methodname="ApplyMirroredReferenceTransform" classname="UnityEngine.Rendering.HighDefinition.Tests.ProbeSettingsUtilitiesTests" runstate="Runnable" seed="154012256" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.002244" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1639" name="ApplyObliqueNearClipPlane" fullname="UnityEngine.Rendering.HighDefinition.Tests.ProbeSettingsUtilitiesTests.ApplyObliqueNearClipPlane" methodname="ApplyObliqueNearClipPlane" classname="UnityEngine.Rendering.HighDefinition.Tests.ProbeSettingsUtilitiesTests" runstate="Runnable" seed="661583112" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.001487" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1641" name="ScalableSettingSchemaTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingSchemaTests" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingSchemaTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.002032" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1644" name="GetSchemaOrNull_ReturnsNullWhenMissing" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingSchemaTests.GetSchemaOrNull_ReturnsNullWhenMissing" methodname="GetSchemaOrNull_ReturnsNullWhenMissing" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingSchemaTests" runstate="Runnable" seed="989972773" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000399" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1643" name="GetSchemaOrNullWorks" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingSchemaTests.GetSchemaOrNullWorks" methodname="GetSchemaOrNullWorks" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingSchemaTests" runstate="Runnable" seed="1331803388" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000375" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1642" name="LevelNamesWorks" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingSchemaTests.LevelNamesWorks" methodname="LevelNamesWorks" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingSchemaTests" runstate="Runnable" seed="470803756" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000253" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1645" name="ScalableSettingTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingTests" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingTests" runstate="Runnable" testcasecount="4" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.002536" total="4" passed="4" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1647" name="ConstructorThrowForNullArray" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingTests.ConstructorThrowForNullArray" methodname="ConstructorThrowForNullArray" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingTests" runstate="Runnable" seed="2095353749" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000646" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1646" name="IndexValuesWorks" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingTests.IndexValuesWorks" methodname="IndexValuesWorks" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingTests" runstate="Runnable" seed="63221131" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000251" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1648" name="SchemaPropertyWorks" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingTests.SchemaPropertyWorks" methodname="SchemaPropertyWorks" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingTests" runstate="Runnable" seed="1298380886" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000365" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1649" name="TryGetWorks" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingTests.TryGetWorks" methodname="TryGetWorks" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingTests" runstate="Runnable" seed="204708170" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000327" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1650" name="ScalableSettingValueTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingValueTests" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingValueTests" runstate="Runnable" testcasecount="3" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.003302" total="3" passed="3" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1653" name="CopyToWorks" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingValueTests.CopyToWorks" methodname="CopyToWorks" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingValueTests" runstate="Runnable" seed="1862404434" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000388" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1652" name="ValueWorkWithLevel" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingValueTests.ValueWorkWithLevel" methodname="ValueWorkWithLevel" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingValueTests" runstate="Runnable" seed="305461471" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000282" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1651" name="ValueWorkWithOverride" fullname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingValueTests.ValueWorkWithOverride" methodname="ValueWorkWithOverride" classname="UnityEngine.Rendering.HighDefinition.Tests.ScalableSettingValueTests" runstate="Runnable" seed="1035550689" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000183" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1654" name="SerializedScalableSettingTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingTests" classname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.003935" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1655" name="TryGetLevelValueWorks" fullname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingTests.TryGetLevelValueWorks" methodname="TryGetLevelValueWorks" classname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingTests" runstate="Runnable" seed="1360251147" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.002259" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1656" name="SerializedScalableSettingValueTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests" classname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests" runstate="Runnable" testcasecount="5" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.011440" total="5" passed="5" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1657" name="TryGetValueWorks_ForExistingLevelValue" fullname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests.TryGetValueWorks_ForExistingLevelValue" methodname="TryGetValueWorks_ForExistingLevelValue" classname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests" runstate="Runnable" seed="1402401093" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.002715" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1659" name="TryGetValueWorks_ForMissingLevelValue" fullname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests.TryGetValueWorks_ForMissingLevelValue" methodname="TryGetValueWorks_ForMissingLevelValue" classname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests" runstate="Runnable" seed="963787671" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.001111" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1660" name="TryGetValueWorks_ForMultipleDifferentValues" fullname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests.TryGetValueWorks_ForMultipleDifferentValues" methodname="TryGetValueWorks_ForMultipleDifferentValues" classname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests" runstate="Runnable" seed="53310673" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.002264" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1661" name="TryGetValueWorks_ForMultipleIdenticalValues" fullname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests.TryGetValueWorks_ForMultipleIdenticalValues" methodname="TryGetValueWorks_ForMultipleIdenticalValues" classname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests" runstate="Runnable" seed="1778351712" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.002435" asserts="0">
+                  <properties />
+                </test-case>
+                <test-case id="1658" name="TryGetValueWorks_ForOverrideValue" fullname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests.TryGetValueWorks_ForOverrideValue" methodname="TryGetValueWorks_ForOverrideValue" classname="UnityEngine.Rendering.HighDefinition.Tests.SerializedScalableSettingValueTests" runstate="Runnable" seed="677708783" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.001388" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+              <test-suite type="TestFixture" id="1667" name="VolumeSystemTests" fullname="UnityEngine.Rendering.HighDefinition.Tests.VolumeSystemTests" classname="UnityEngine.Rendering.HighDefinition.Tests.VolumeSystemTests" runstate="Runnable" testcasecount="1" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.001440" total="1" passed="1" failed="0" inconclusive="0" skipped="0" asserts="0">
+                <properties />
+                <test-case id="1668" name="DiffusionProfileOverride_InterpAccumulation" fullname="UnityEngine.Rendering.HighDefinition.Tests.VolumeSystemTests.DiffusionProfileOverride_InterpAccumulation" methodname="DiffusionProfileOverride_InterpAccumulation" classname="UnityEngine.Rendering.HighDefinition.Tests.VolumeSystemTests" runstate="Runnable" seed="123498134" result="Passed" start-time="2026-09-23 16:06:02Z" end-time="2026-09-23 16:06:02Z" duration="0.000797" asserts="0">
+                  <properties />
+                </test-case>
+              </test-suite>
+            </test-suite>
+          </test-suite>
+        </test-suite>
+      </test-suite>
+    </test-suite>
+  </test-suite>
+</test-run>

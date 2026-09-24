@@ -1,0 +1,81 @@
+# Experimental HDRP Mobile renderer
+
+This fork adds an independently initialized forward backend to HDRP 14.0.9 / Unity 2022.3. It targets Android Vulkan. It is a project-maintained extension, not official Unity HDRP mobile support. Windows D3D11 and Vulkan are supported for Editor preview; mobile player builds reject other platforms/APIs.
+
+## Setup
+
+1. Create **Assets > Create > Rendering > HDRP Mobile Pipeline Asset**. Alternatively select an HDRP Asset, set **Renderer Mode = Mobile**, then **Assign Mobile Resources**.
+2. Assign that asset in Graphics settings and every Quality level included in the Android build. Keep a separate Desktop asset for the desktop application and authoring/baking workflow. Existing assets default to Desktop.
+3. Use Linear color space and Android **Lightmap Encoding = High Quality** to retain physical HDR lighting values. Disable Android Auto Graphics API and leave **Vulkan only**. The GPU must support sampling, filtering and rendering RGBA16F. MSAA, XR and OpenGL ES are unsupported.
+4. Run **Rendering > HDRP Mobile > Audit Loaded Scenes**. The report identifies objects, materials and Volume overrides requiring changes. Builds also audit their scene copies. Unsupported content is reported without modifying the scene; unsupported shaders draw with the error material.
+5. Open and test the mobile version of the content in the Editor, then build and profile on devices. Do not infer phone performance from an Editor frame rate.
+
+Game cameras targeting the display default to a fixed 1920×1080 internal color/depth buffer. Final composition scales to the camera's display viewport. Disable **Fixed 1080p** to use the output dimensions instead. **Render Scale** is an explicit quality control (0.5–1); no automatic resolution controller is installed. Scene View, material previews and explicit RenderTextures use their own dimensions, multiplied by Render Scale. The performance acceptance run requires scale 1 throughout.
+
+## Supported content
+
+| Area | Mobile behavior |
+| --- | --- |
+| Materials | Existing HDRP/Lit (Standard) and HDRP/Unlit materials, UV0 mapping; no conversion or replacement material assets |
+| Surface | Base color, tangent-space normal, Mask Map metallic/AO/smoothness, emission, alpha clipping, double-sided surfaces |
+| Transparency | Alpha, Premultiply and Additive; sorted forward rendering, no refraction or distortion |
+| Direct lighting | One directional light, chosen from RenderSettings.sun or the brightest visible directional; at most 32 visible point/spot lights uploaded, up to four native per-object indices sampled |
+| Shadows | Directional light only, two cascades, default 1024² atlas / 30 m distance / 4-tap PCF; configurable split, normal bias and cascade blend (default 10% of first radius) |
+| Baked lighting | Lightmaps including directional maps, Light Probe SH, one baked Reflection Probe per object without blending/box projection |
+| Mixed lighting | Baked Indirect only; no Shadowmask, Subtractive, realtime GI or APV |
+| Background | Explicit cubemap, Volume HDRI/Gradient sky, procedural approximation of Physical Sky or legacy URP skybox, solid camera clear, optional distance fog |
+| Volumes | Fixed / Physical Camera Exposure, Color Adjustments (exposure/filter/contrast/hue/saturation), None/Neutral/ACES tonemapping; optional Bloom intensity; Mobile Rendering/FXAA toggle |
+| Anti-aliasing | FXAA, enabled by default; no temporal history or motion vectors |
+| Cameras | Game, Scene View, material preview, explicit RenderTexture and viewport output; each camera clears its independent targets |
+
+HDAdditionalCameraData's volume mask/anchor and clear color/sky choice are respected. Mobile creates its own lightweight default Volume using the registered HDRP default profile, without creating desktop sky managers. Desktop Frame Settings are not consumed. The remaining unsupported features include Shader Graph, Layered Lit, SSS, anisotropy, displacement, clear coat, decals, terrain, water, volumetrics, screen-space lighting, VFX Graph, Custom Pass, custom post effects, camera stacking, realtime reflection cameras, planar reflections and XR.
+
+**Draw Unsupported Materials** adds a diagnostic magenta draw for materials lacking MobileForward. This scans loaded scene renderers once per game frame with reused collections. Disable it after a clean audit when profiling/shipping validated content; the benchmark asset disables it. Diagnostic draws are frustum/depth tested but do not reproduce native LOD/occlusion selection for unsupported content. Persistent objects are included when their scene is visited by a camera. This diagnostic is not a fallback implementation of the unsupported material's effect.
+
+The material property buffer uses the existing Lit/Unlit declarations in all passes, including the desktop passes. Mobile HLSL does not include the desktop LightLoop or ShaderVariablesGlobal buffer. Standard GPU Instancing and SRP Batcher are enabled; DOTS/BatchRendererGroup and rendering-layer light linking are not implemented in the mobile backend.
+
+HDAdditionalLightData already converts authoring intensity to Light.intensity (lux for directional, candela for punctual lights). The mobile backend consumes VisibleLight.finalColor directly, including color temperature, and applies inverse-square punctual attenuation. It does not apply a second intensity/unit conversion. Fixed exposure uses Core's EV100 conversion. The metallic Lit BRDF follows URP 14.0.9; existing HDRP property packing and light units remain unchanged. See [URP material alignment](Mobile-URP14-Alignment.md) for input mapping, transparency migration and validation boundaries. Fog, color grading and bloom are not pixel-identical to full desktop HDRP or URP.
+
+Bloom is off by default. When enabled on the asset, a Volume Bloom intensity greater than zero enables three downsample passes (half, quarter, eighth resolution), a fixed linear threshold of 1 and a bilinear composite. Desktop bloom scatter, dirt, anamorphism and other controls are not implemented. Unsupported Volume component types are reported by the audit.
+
+Mobile and Desktop share the standard **Exposure** Volume and the same fixed/physical parameter resolver. Use **Mode = Fixed**, **Fixed Exposure (EV100)** and **Compensation** in the same Volume Profile to author both paths; Physical Camera mode reads the same camera aperture/shutter/ISO. No separate Mobile EV parameter is needed. Mobile respects the global/camera **Exposure Control** Frame Setting, and Scene View inherits the main camera's Volume mask/anchor using the Desktop selection rules.
+
+Exposure is applied before writing RGBA16F, so physical highlights do not clip before exposure. Fixed EV, compensation, physical camera aperture/shutter/ISO and the registered HDRP lens attenuation setting follow desktop conversion. HDRP Unlit base color remains display-referred; Lit/Unlit emission respects Emissive Exposure Weight. The composite applies Color Adjustments post-exposure separately. Automatic, Automatic Histogram and Curve Mapping automatically fall back to the same Volume's **Fixed Exposure + Compensation** on Mobile, without changing the serialized mode used by Desktop. Enable the Fixed Exposure override and choose an EV appropriate to the scene; the Mobile Exposure inspector exposes this fallback field. This is fixed fallback exposure, not automatic metering or a copy of Desktop's last adapted EV. The project's DefaultSettingsVolumeProfile uses EV 10 as its initial Mobile fallback. Equal EV does not imply equal Lit output between the URP BRDF and desktop HDRP BRDF.
+
+When **Sky Fallback** is enabled and no explicit cubemap is assigned, Mobile resolves HDRI/Gradient from the camera's Volume stack, then approximates Physical Sky or falls back to `RenderSettings.skybox` (`Skybox/Cubemap` or `Skybox/Procedural`). HDRI rotation/intensity and Gradient colors are retained. Physical Sky becomes a sun-lit gradient with a sun disk; it does not reproduce atmospheric scattering, aerial perspective, clouds, backplates or distortion. Legacy URP skybox exposure is display-referred and retains the material's own exposure, independently of HDRP camera EV. Sky rendering does not generate lighting probes or realtime reflections; continue using baked environment lighting. Disable Sky Fallback for the original explicit-cubemap/clear behavior.
+
+## Implementation and resource lifetime
+
+`HDRenderPipelineAsset.rendererMode` selects the backend at construction. The Mobile branch precedes desktop API checks and all desktop initialization. It uses its own RenderGraph, VolumeStack and three raster materials. SkyManager, LightLoop resource containers and the desktop RenderGraph are constructed only in Desktop mode. Disposal releases the mobile graph/materials/VolumeStack and restores the global shader tag, keyword, lighting flags, SRP Batcher and rendering features.
+
+The graph records main-light shadows, forward opaque geometry, cubemap background, forward transparency, optional bloom and final grading/FXAA/output. It allocates RGBA16F color, depth, a directional shadow atlas (a 1×1 neutral allocation when unused), and optional bloom levels. It allocates no GBuffer, normal buffer, velocity, screen-space pyramids, compute light lists or temporal history. GPU memory still varies with the output target, optional passes and RenderGraph pooling.
+
+Built-in `ShadowCaster` and Editor picking/selection passes select the mobile implementation with `HDRP_MOBILE_RENDERER`. Their entry-point declarations remain outside keyword conditionals so Unity does not discard the mobile stage. Rendering uses `MobileForward`; desktop renderers continue selecting their existing LightModes. Desktop shared HLSL was extracted into include files without changing its definitions.
+
+Build validation checks the included assets before desktop platform validation. Shader stripping preserves the union of the included renderer modes: mobile assets retain mobile raster passes and mobile ShadowCaster variants; desktop assets retain their own variants. User-owned compute shaders are not removed merely because the pipeline is Mobile. Assets referenced from scenes or included through HDRP's build label also participate. Dynamically loaded/addressable content must ensure its pipeline assets and shader variants are included in the application's build workflow.
+
+## Benchmark and validation
+
+**Rendering > HDRP Mobile > Create Benchmark Scene** generates a new Assets folder with a scene, Mobile asset, Volume profile, lighting settings, materials, a skinned mesh and deterministic cutout texture. It does not overwrite existing assets or automatically change Graphics/Quality settings. Save any untitled authoring scene when Unity asks, and open the benchmark scene by itself before running it.
+
+Alternatively import **Mobile Renderer Benchmark** from this package's Samples. It includes a baked fixture; select its `Mobile.asset` for Graphics/Quality explicitly. The saved Volume uses fixed EV100 14 for the 100,000 lux sun. Re-bake after changing static geometry or lighting. Diagnostic unsupported-material drawing is disabled in this benchmark asset to keep its renderer scan out of performance measurements.
+
+The fixture contains 36 static blocks, a ground receiver, one main light, four local lights, eight cutout cards, a transparent sphere, a two-bone animated capsule, a Light Probe grid and a baked Reflection Probe. Bake lighting/reflections using a Desktop asset with a supported Desktop build target selected (for example Windows), save the lighting data, then switch back to the Mobile asset and Android for the run. Use HDRP's reflection probe baking workflow, not the legacy `Lightmapping.BakeReflectionProbe` API. Unbaked content is not a valid baked-lighting performance baseline.
+
+The mobile backend temporarily mirrors baked HDProbe textures into native ReflectionProbe bindings before culling and restores them on disposal. It never renders realtime probes. HDRP reflection baking is blocked while Mobile is active so the Editor cannot inadvertently initialize desktop capture resources.
+
+The benchmark follows the same 30-second camera orbit and bone animation, warms up for 300 seconds and captures for 600 seconds. It saves JSON under `Application.persistentDataPath` with device/GPU/driver/OS, internal and output dimensions, sample counts and nearest-rank frame-time percentiles. CPU/GPU frame timing percentiles are recorded when FrameTimingManager supplies them; `-1` means unavailable, not zero. Enable Frame Timing Stats in Player settings for supported device timing queries. Temperature is an explicit operator observation field; no GPU temperature is fabricated from battery temperature.
+
+Acceptance requires fixed 1920×1080 internal resolution at render scale 1 for the entire capture and P95 frame time ≤16.67 ms, after the full warmup and capture intervals. Gather separate reports for Adreno and Mali, including thermal conditions, and retain captures showing the actual pass list. No device coverage or frame-rate guarantee is implied by a successful compilation.
+
+Automated checks:
+
+- `MobileRenderTests` (EditMode): legacy defaults, platform gate, non-mutating content audit, percentile behavior and idempotent resource/global-state cleanup.
+- `MobileURPMaterialTests` (EditMode, graphics device required): direct/indirect metallic BRDF and transparency source contributions compared on GPU against pinned URP 14.0.9 reference code.
+- `MobileImageTests`, `MobileShadowTests`, `MobileExposureTests`, `MobileStabilityTests`: actual Forward/auxiliary passes, per-camera state, cascade sampling, desktop exposure reference, construction failures and repeated resource replacement.
+- `UnityEditor.Rendering.HighDefinition.MobilePlayModeValidation.Run`: disposable batch project only; repeats PlayMode with and without domain reload and records errors/resource counts.
+- `UnityEditor.Rendering.HighDefinition.MobileRenderValidation.Run`: batch entry point for a **disposable** Unity project; validates desktop/mobile shader passes and mobile feature variants, renders offscreen Unlit and Lit/shadow comparisons, and creates a benchmark fixture. PNGs are written alongside the temporary project's Assets folder. Do not run this entry point against an authoring project: it replaces the open scene and temporary Graphics/Quality settings.
+- `UnityEditor.Rendering.HighDefinition.MobileRenderValidation.BuildAndroid`: batch entry point for the same disposable project with Android selected; builds an ARM64 IL2CPP Vulkan development APK. It intentionally configures that project's Player/Quality settings for the benchmark.
+- `UnityEditor.Rendering.HighDefinition.MobileRenderValidation.ExportAndroid`: exports the same Gradle project without dependency download/packaging; this is useful for separating Unity compilation from Android build-tool/network failures.
+
+Maintain separate mobile image baselines. Desktop render and existing HDRP tests must continue passing after changes to shared shader declarations or pipeline lifecycle code. Test domain reload, asset switching, scene switching, multiple cameras, RenderTextures, cutout/double-sided/transparency, skinned meshes, instancing, baked lightmaps/probes, cascade boundaries, missing resources and incompatible build assets. Mobile performance and thermal acceptance require physical devices.

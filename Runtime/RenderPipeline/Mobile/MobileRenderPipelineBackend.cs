@@ -12,12 +12,15 @@ namespace UnityEngine.Rendering.HighDefinition
         const string MobileKeyword = "HDRP_MOBILE_RENDERER";
         static readonly ShaderTagId ForwardTag = new ShaderTagId("MobileForward");
         static MobileRenderPipelineBackend s_ActiveOwner;
+        // Set only for the explicit editor bake camera; ordinary cameras are unaffected.
+        internal static Camera reflectionCaptureCamera;
         readonly HDRenderPipelineAsset m_Asset;
         readonly RenderGraph m_Graph;
         readonly Material m_Composite, m_Sky, m_Error;
         readonly VolumeStack m_Volumes;
         readonly MobileExposureHistory m_ExposureHistory = new MobileExposureHistory();
         readonly MobileEnvironmentCache m_Environment = new MobileEnvironmentCache();
+        readonly MobileReflectionAtlas m_ReflectionAtlas = new MobileReflectionAtlas();
         MobileEnvironmentCache.State m_CameraEnvironment;
         readonly Volume m_DefaultVolume;
         readonly MobileErrorRenderer m_ErrorRenderer = new MobileErrorRenderer();
@@ -100,6 +103,7 @@ namespace UnityEngine.Rendering.HighDefinition
                     lightmapsModes = LightmapsMode.NonDirectional | LightmapsMode.CombinedDirectional,
                     lightProbeProxyVolumes = false, motionVectors = false, receiveShadows = true,
                     reflectionProbes = true, overridesFog = true, enlighten = false,
+                    reflectionProbeModes = SupportedRenderingFeatures.ReflectionProbeModes.Rotation,
                     rendersUIOverlay = false
                 };
             }
@@ -117,7 +121,8 @@ namespace UnityEngine.Rendering.HighDefinition
 
         internal void Render(ScriptableRenderContext context, Camera camera)
         {
-            if (m_Disposed || camera == null || camera.stereoEnabled || camera.cameraType == CameraType.Reflection)
+            bool capture = camera != null && camera == reflectionCaptureCamera;
+            if (m_Disposed || camera == null || camera.stereoEnabled || (camera.cameraType == CameraType.Reflection && !capture))
                 return;
             SynchronizeBakedReflectionProbes();
             // HDRP stores baked textures separately. Flush changes into the native
@@ -145,16 +150,25 @@ namespace UnityEngine.Rendering.HighDefinition
             FrameSettings frameSettings = new FrameSettings();
             FrameSettings.AggregateFrameSettings(ref frameSettings, camera, additional, m_Asset);
             float exposure = MobileExposure.Evaluate(m_Volumes.GetComponent<Exposure>(), camera, frameSettings.IsEnabled(FrameSettingsField.ExposureControl));
+            if (capture) exposure = 1f / Mathf.Max(additional != null ? additional.probeCustomFixedExposure : 1f, 1e-6f);
             var exposureVolume = m_Volumes.GetComponent<Exposure>();
-            var exposureState = m_ExposureHistory.Prepare(camera, exposureVolume, frameSettings.IsEnabled(FrameSettingsField.ExposureControl));
-            Vector2Int renderSize = settings.GetRenderSize(camera);
+            var exposureState = capture ? null : m_ExposureHistory.Prepare(camera, exposureVolume, frameSettings.IsEnabled(FrameSettingsField.ExposureControl));
+            Vector2Int renderSize = capture ? new Vector2Int(camera.targetTexture.width, camera.targetTexture.height) : settings.GetRenderSize(camera);
             int width = renderSize.x, height = renderSize.y;
-            bool deferred = ResolveDeferred(context, camera, culling, out bool nativeDeferred);
+            bool nativeDeferred = false;
+            bool deferred = !capture && ResolveDeferred(context, camera, culling, out nativeDeferred);
             var deferredDepth = deferred ? EnsureDeferredResources(camera, width, height) : null;
             if (!deferred) ReleaseDeferredDepth(camera);
             var cmd = CommandBufferPool.Get("HDRP Mobile");
             try
             {
+                if (capture)
+                {
+                    // No feedback from the probe currently being baked or its old cube.
+                    cmd.SetGlobalInt("_MobileReflectionHasHDRPProbes", 1);
+                    cmd.SetGlobalInt("_MobileReflectionCount16", 0);
+                }
+                else m_ReflectionAtlas.Prepare(cmd, camera, culling, m_Sky, settings.reflectionAtlasSize);
                 var sky = MobileSky.Resolve(settings, m_Volumes, RenderSettings.skybox, Mathf.Max(m_MainColor.x, Mathf.Max(m_MainColor.y, m_MainColor.z)));
                 m_CameraEnvironment = m_Environment.Prepare(cmd, camera, sky, m_MainDirection, m_MainColor, settings, m_Sky);
                 context.ExecuteCommandBuffer(cmd); cmd.Clear();
@@ -169,7 +183,7 @@ namespace UnityEngine.Rendering.HighDefinition
                     var color = m_Graph.CreateTexture(new TextureDesc(width, height)
                     {
                         name = "Mobile HDR Color", colorFormat = deferred ? GraphicsFormat.B10G11R11_UFloatPack32 : GraphicsFormat.R16G16B16A16_SFloat,
-                        clearBuffer = !deferred, clearColor = additional != null ? additional.backgroundColorHDR : camera.backgroundColor.linear, filterMode = FilterMode.Bilinear
+                        clearBuffer = !deferred, clearColor = (additional != null ? additional.backgroundColorHDR : camera.backgroundColor.linear) * (capture ? exposure : 1f), filterMode = FilterMode.Bilinear
                     });
                     var depth = deferred ? m_Graph.ImportTexture(deferredDepth) : m_Graph.CreateTexture(new TextureDesc(width, height)
                     {
@@ -190,11 +204,11 @@ namespace UnityEngine.Rendering.HighDefinition
                     });
                     RecordLocalShadows(camera, culling, localAtlas, localSize);
                     RecordScene(camera, culling, color, depth, atlas, localAtlas, localSize, atlasSize, shadows, width, height, exposure, exposureState, deferred, nativeDeferred);
-                    m_ExposureHistory.Record(m_Graph, color, exposureState, exposureVolume, m_Composite, (int)settings.meteringResolution);
+                    if (!capture) m_ExposureHistory.Record(m_Graph, color, exposureState, exposureVolume, m_Composite, (int)settings.meteringResolution);
                     TextureHandle bloom = m_Graph.defaultResources.blackTexture;
                     var bloomVolume = m_Volumes.GetComponent<Bloom>();
                     float bloomIntensity = bloomVolume.active && bloomVolume.IsActive() ? bloomVolume.intensity.value : 0f;
-                    if (bloomIntensity > 0f)
+                    if (!capture && bloomIntensity > 0f)
                     {
                         var down0 = RecordFilter(color, Mathf.Max(1, width / 2), Mathf.Max(1, height / 2), 1, "Mobile Bloom Half");
                         var down1 = RecordFilter(down0, Mathf.Max(1, width / 4), Mathf.Max(1, height / 4), 2, "Mobile Bloom Quarter");
@@ -202,16 +216,17 @@ namespace UnityEngine.Rendering.HighDefinition
                     }
                     var output = m_Graph.ImportBackbuffer(camera.targetTexture != null
                         ? new RenderTargetIdentifier(camera.targetTexture) : new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget));
-                    RecordComposite(camera, color, bloom, output, width, height, bloomIntensity);
+                    if (capture) RecordReflectionCapture(color, output, width, height);
+                    else RecordComposite(camera, color, bloom, output, width, height, bloomIntensity);
 #if UNITY_EDITOR
-                    if (camera.cameraType == CameraType.SceneView || UnityEditor.Handles.ShouldRenderGizmos())
+                    if (!capture && (camera.cameraType == CameraType.SceneView || UnityEditor.Handles.ShouldRenderGizmos()))
                         RecordEditorGizmos(camera, depth, output);
 #endif
                 }
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
                 context.Submit();
-                MobileExposureHistory.Commit(exposureState);
+                if (!capture) MobileExposureHistory.Commit(exposureState);
             }
             finally { CommandBufferPool.Release(cmd); }
         }
@@ -508,6 +523,7 @@ namespace UnityEngine.Rendering.HighDefinition
             ctx.cmd.SetGlobalFloat("_MobileAutomaticExposure", pass.automaticExposure ? 1 : 0);
             ctx.cmd.SetGlobalTexture("_MobileExposureTexture", pass.exposureTexture);
             ctx.cmd.SetGlobalFloat("_MobileDeExposure", pass.deExposure);
+            ctx.cmd.SetGlobalFloat("_MobileReflectionCapture", pass.camera == reflectionCaptureCamera ? 1 : 0);
             ctx.cmd.SetGlobalMatrix("_MobileInvVP", pass.vp.inverse);
             ctx.cmd.SetGlobalVector("_MobileCameraPosition", pass.position);
             ctx.cmd.SetGlobalVector("_MobileCameraForward", pass.forward);
@@ -643,6 +659,23 @@ namespace UnityEngine.Rendering.HighDefinition
             internal float hue, bloomIntensity;
         }
 
+        void RecordReflectionCapture(TextureHandle source, TextureHandle output, int width, int height)
+        {
+            using (var builder = m_Graph.AddRenderPass<CompositeData>("Mobile Reflection Capture", out var data))
+            {
+                data.source = builder.ReadTexture(source);
+                builder.UseColorBuffer(output, 0);
+                data.material = m_Composite;
+                data.viewport = new Rect(0, 0, width, height);
+                builder.SetRenderFunc((CompositeData pass, RenderGraphContext ctx) =>
+                {
+                    ctx.cmd.SetViewport(pass.viewport);
+                    ctx.cmd.SetGlobalTexture("_MobileSource", pass.source);
+                    ctx.cmd.DrawProcedural(Matrix4x4.identity, pass.material, pass.material.FindPass("MobileReflectionCapture"), MeshTopology.Triangles, 3);
+                });
+            }
+        }
+
         void RecordComposite(Camera camera, TextureHandle color, TextureHandle bloom, TextureHandle output, int width, int height, float bloomIntensity)
         {
             var adjustments = m_Volumes.GetComponent<ColorAdjustments>();
@@ -691,6 +724,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 {
                     m_ExposureHistory.Dispose();
                     m_Environment.Dispose();
+                    m_ReflectionAtlas.Dispose();
                     DisposeDeferred();
                     CoreUtils.Destroy(m_Composite); CoreUtils.Destroy(m_Sky); CoreUtils.Destroy(m_Error);
                     if (m_Volumes != null) VolumeManager.instance.DestroyStack(m_Volumes);

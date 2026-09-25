@@ -84,6 +84,7 @@ namespace UnityEditor.Rendering.HighDefinition
 
         static void DrawLights(SerializedObject serialized, Editor owner)
         {
+            Field(serialized, "reflectionAtlasSize", "Reflection Atlas Size", "HDRP octahedral atlas, 1024–4096. Up to 16 visible HDRP probes, with raster GGX filtering.");
             Field(serialized, "additionalLightsPerObject", "Maximum Additional Lights per Object", "Maximum additional forward lights evaluated per object (0-4), in addition to the main directional light.");
         }
 

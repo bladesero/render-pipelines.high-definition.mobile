@@ -1,11 +1,10 @@
 #ifndef HDRP_MOBILE_INPUT_INCLUDED
 #define HDRP_MOBILE_INPUT_INCLUDED
-// Core's spectral thin-film fit contains constants outside half's range.
-// Keep library math in float; the mobile BRDF still uses explicit half storage.
-#if defined(MOBILE_EXTENDED_LIT) || defined(MOBILE_EXTENDED_GBUFFER)
+// Keep shared physical/spectral library math in FP32. Mobile's bounded ALU uses
+// explicit min16float types from MobilePrecision, independent of Core's 'real'.
 #define PREFER_HALF 0
-#endif
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "MobilePrecision.hlsl"
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Packing.hlsl"
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/EntityLighting.hlsl"
 
@@ -39,6 +38,7 @@ float4 _MobileCameraPosition;
 float4 _MobileCameraForward;
 #include "MobileExposure.hlsl"
 float _MobileDeExposure;
+float _MobileReflectionCapture;
 float _MobileDeferredExtendedLayout;
 float4 _MobileMainDirection, _MobileMainColor;
 float4 _MobileLightPositions[32], _MobileLightColors[32];

@@ -51,6 +51,8 @@ namespace UnityEngine.Rendering.HighDefinition
         [Tooltip("Generate diffuse irradiance and GGX reflection from the resolved sky. Baked lightmaps/probes retain priority.")]
         public bool environmentLighting = true;
         public MobileEnvironmentResolution environmentResolution = MobileEnvironmentResolution.Low;
+        [Tooltip("HDRP octahedral reflection atlas. Up to 16 visible probes share 4x4 tiles, with seven filtered mip levels. Rounded up to a power of two.")]
+        [Range(1024, 4096)] public int reflectionAtlasSize = 2048;
         [Tooltip("PreferBakedProbes retains native SH when the scene has a baked probe set. RuntimeSky uses sky irradiance on all non-lightmapped objects. Neither mode adds sky a second time to a lightmap.")]
         public MobileEnvironmentDiffuseSource environmentDiffuseSource = MobileEnvironmentDiffuseSource.PreferBakedProbes;
         [Tooltip("Faces/mips filtered per update after initial warm-up. The old complete cache remains visible until the new generation is ready.")]

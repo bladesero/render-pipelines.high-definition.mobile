@@ -16,6 +16,8 @@ struct MobileExtendedGBufferOutput
     float4 fresnelCoat : SV_Target3;
 };
 
+// Preserve FP32 octahedral packing and MRT interfaces. Narrow only the decoded
+// surface direction for lighting; quantizing the fold changes hemisphere edges.
 float2 MobileEncodeNormal(float3 normalWS)
 {
     return saturate(PackNormalOctQuadEncode(normalize(normalWS)) * 0.5 + 0.5);

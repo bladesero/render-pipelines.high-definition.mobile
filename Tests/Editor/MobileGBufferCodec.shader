@@ -28,7 +28,11 @@ Shader "Hidden/HDRP/MobileGBufferCodecTest"
             uint i = (uint)p.x;
             float4 c = ColorValue(i), b = LOAD_TEXTURE2D(_Base, uint2(i, 0)), n = LOAD_TEXTURE2D(_Normal, uint2(i, 0));
             float3 error = abs(b.rgb - c.rgb);
-            return float4(acos(clamp(dot(Normal(i), MobileDecodeNormal(n.rg)), -1, 1)) * 180 / PI,
+            float3 decoded = MobileDecodeNormal(n.rg);
+            // FP16 normalization has a small length error. Measure direction
+            // independently, while still rejecting length drift above 0.2%.
+            float angularError = acos(clamp(dot(Normal(i), normalize(decoded)), -1, 1)) * 180 / PI;
+            return float4(abs(length(decoded) - 1) > 0.002 ? 180 : angularError,
                 Max3(error.r, error.g, error.b), abs(b.a - c.a), max(abs(n.b-c.r), abs(n.a-c.g)));
         }
         ENDHLSL

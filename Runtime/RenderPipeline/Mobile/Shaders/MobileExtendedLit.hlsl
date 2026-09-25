@@ -7,13 +7,13 @@ int _MobileDiffusionCount;
 
 struct MobileExtendedSurface
 {
-    float3 fresnel0;
-    float coat;
-    float3 tangent;
-    float anisotropy;
+    mobile_half3 fresnel0;
+    mobile_half coat;
+    mobile_half3 tangent;
+    mobile_half anisotropy;
     // SSS/Transmission: radius mask, normalized thickness, profile index, transmission mask.
     // Iridescence: mask, film thickness (micrometers), unused, unused.
-    float4 features;
+    mobile_half4 features;
 };
 
 uint MobileDiffusionIndex(uint hash)
@@ -76,13 +76,13 @@ float MobileExtendedMainShadow(MobileExtendedSurface surface, int type, float3 n
 
 // Split diffuse and specular so raster diffusion never blurs emission or highlights.
 void MobileEvaluateExtendedDirect(MobileBRDFData brdf, MobileExtendedSurface surface, int type,
-    float3 normal, float3 view, float3 light, float specularEnabled, out float3 diffuse, out float3 specular,
+    mobile_half3 normal, mobile_half3 view, mobile_half3 light, mobile_half specularEnabled, out float3 diffuse, out float3 specular,
     float3 positionWS, bool mainLight, bool receiveShadows)
 {
     float nl = dot(normal, light), nv = max(saturate(dot(normal, view)), 1e-4);
     float3 halfDirection = SafeNormalize(light + view);
     float nh = saturate(dot(normal, halfDirection)), lh = saturate(dot(light, halfDirection));
-    float3 fresnel = F_Schlick(surface.fresnel0, lh);
+    mobile_half3 fresnel = MobileFresnel(surface.fresnel0, mobile_half(lh));
     if (type == 3)
         fresnel = lerp(fresnel, EvalIridescence(1, lh, surface.features.y, surface.fresnel0), surface.features.x);
     float roughness = max((float)brdf.roughness, 0.002);
@@ -117,7 +117,7 @@ void MobileEvaluateExtendedDirect(MobileBRDFData brdf, MobileExtendedSurface sur
     }
     if (surface.coat > 0)
     {
-        float coatFresnel = F_Schlick(0.04, lh) * surface.coat;
+        mobile_half coatFresnel = MobileFresnel(mobile_half3(0.04, 0.04, 0.04), mobile_half(lh)).x * surface.coat;
         diffuse *= 1 - coatFresnel;
         specular = specular * Sq(1 - coatFresnel)
             + coatFresnel * DV_SmithJointGGX(nh, saturate(nl), nv, 0.01) * saturate(nl) * specularEnabled;

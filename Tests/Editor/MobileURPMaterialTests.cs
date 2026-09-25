@@ -42,14 +42,21 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
                     return readback.GetPixels();
                 }
                 var reference = Capture(0); var mobile = Capture(1);
+                float maximumError = 0;
+                int worstSample = 0, worstChannel = 0;
                 for (int i = 0; i < reference.Length; i++)
                     for (int channel = 0; channel < 4; channel++)
                     {
                         float expected = reference[i][channel], actual = mobile[i][channel];
                         Assert.IsFalse(float.IsNaN(expected) || float.IsInfinity(expected) || float.IsNaN(actual) || float.IsInfinity(actual));
-                        Assert.That(actual, Is.EqualTo(expected).Within(0.0002f * Mathf.Max(1, Mathf.Abs(expected))),
-                            $"Mode {mode}, sample {i}, channel {channel}");
+                        float normalizedError = Mathf.Abs(actual - expected) / Mathf.Max(1, Mathf.Abs(expected));
+                        if (normalizedError > maximumError) { maximumError = normalizedError; worstSample = i; worstChannel = channel; }
                     }
+                Debug.Log($"Mobile precision mode {mode}: maximum normalized error {maximumError}, sample {worstSample}, channel {worstChannel}");
+                // Mobile explicitly uses min16float while the pinned desktop oracle
+                // remains FP32. Allow ~two FP16 epsilons; keep finite checks and audit
+                // the worst sample across the entire roughness/metallic/angle sweep.
+                Assert.LessOrEqual(maximumError, 0.002f, $"Mode {mode}, sample {worstSample}, channel {worstChannel}");
             }
             finally
             {

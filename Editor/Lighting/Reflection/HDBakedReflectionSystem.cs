@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
 using Unity.Collections.LowLevel.Unsafe;
@@ -60,16 +61,11 @@ namespace UnityEditor.Rendering.HighDefinition
 
         public override bool BakeAllReflectionProbes()
         {
-            if (RenderPipelineManager.currentPipeline is HDRenderPipeline mobilePipeline && mobilePipeline.asset.rendererMode == HDRendererMode.Mobile)
-            {
-                Debug.LogWarning("Reflection probes must be baked with a Desktop HDRP asset and a supported Desktop build target.");
-                return false;
-            }
             if (!AreAllOpenedSceneSaved())
                 return false;
 
             DeleteCubemapAssets(true);
-            var bakedProbes = HDProbeSystem.bakedProbes;
+            var bakedProbes = GetBakedProbes();
 
             return BakeProbes(bakedProbes);
         }
@@ -136,9 +132,14 @@ namespace UnityEditor.Rendering.HighDefinition
             HashUtilities.AppendHash(ref ambientProbeHash, ref allProbeDependencyHash);
             HashUtilities.AppendHash(ref sceneObjectsHash, ref allProbeDependencyHash);
             HashUtilities.AppendHash(ref skySettingsHash, ref allProbeDependencyHash);
+            if (MobileReflectionBaking.active)
+            {
+                var mobileHash = Hash128.Compute("MobileReflectionBake-v1:" + JsonUtility.ToJson(hdPipeline.asset.mobileSettings));
+                HashUtilities.AppendHash(ref mobileHash, ref allProbeDependencyHash);
+            }
 
-            var bakedProbes = HDProbeSystem.bakedProbes;
-            var bakedProbeCount = HDProbeSystem.bakedProbeCount;
+            var bakedProbes = GetBakedProbes();
+            var bakedProbeCount = bakedProbes.Length;
 
             // == 2. ==
             var states = stackalloc HDProbeBakingState[bakedProbeCount];
@@ -392,14 +393,29 @@ namespace UnityEditor.Rendering.HighDefinition
 
         public static bool BakeProbes(IEnumerable<HDProbe> bakedProbes)
         {
-            if (!(RenderPipelineManager.currentPipeline is HDRenderPipeline hdPipeline) || hdPipeline.asset.rendererMode == HDRendererMode.Mobile)
+            var hdPipeline = RenderPipelineManager.currentPipeline as HDRenderPipeline;
+            if (hdPipeline == null && !MobileReflectionBaking.active)
             {
                 Debug.LogWarning("HDBakedReflectionSystem only works with HDRP, " +
                     "please switch your render pipeline or use another reflection probe system.");
                 return false;
             }
 
-            hdPipeline.reflectionProbeBaking = true;
+            bakedProbes = bakedProbes.ToArray();
+            if (bakedProbes.Any(p => p == null || string.IsNullOrEmpty(p.gameObject.scene.path)))
+            {
+                Debug.LogWarning("Save the Reflection Probe's scene before baking reflection probes.");
+                return false;
+            }
+            if (MobileReflectionBaking.active && bakedProbes.Any(p => !(p is HDAdditionalReflectionData)))
+            {
+                Debug.LogWarning("Mobile reflection baking supports cubemap Reflection Probes; Planar Reflection Probes require Desktop HDRP.");
+                return false;
+            }
+            bool previousBaking = hdPipeline != null && hdPipeline.reflectionProbeBaking;
+            if (hdPipeline != null) hdPipeline.reflectionProbeBaking = true;
+            try
+            {
 
             // We force RGBAHalf as we don't support 11-11-10 textures (only RT)
             var probeFormat = GraphicsFormat.R16G16B16A16_SFloat;
@@ -419,9 +435,8 @@ namespace UnityEditor.Rendering.HighDefinition
                 else
                     probeRT = HDRenderUtilities.CreateReflectionProbeRenderTarget((int)probe.cubeResolution, probeFormat);
 
-                RenderAndWriteToFile(probe, bakedTexturePath, probeRT);
-
-                probeRT.Release();
+                try { RenderAndWriteToFile(probe, bakedTexturePath, probeRT); }
+                finally { probeRT.Release(); CoreUtils.Destroy(probeRT); }
             }
 
             // AssetPipeline bug
@@ -431,6 +446,8 @@ namespace UnityEditor.Rendering.HighDefinition
             for (int j = 0; j < 2; ++j)
             {
                 AssetDatabase.StartAssetEditing();
+                try
+                {
                 foreach (var probe in bakedProbes)
                 {
                     if (string.IsNullOrEmpty(probe.gameObject.scene.path))
@@ -440,10 +457,13 @@ namespace UnityEditor.Rendering.HighDefinition
                     AssetDatabase.ImportAsset(bakedTexturePath);
                     ImportAssetAt(probe, bakedTexturePath);
                 }
-                AssetDatabase.StopAssetEditing();
+                }
+                finally { AssetDatabase.StopAssetEditing(); }
             }
 
             AssetDatabase.StartAssetEditing();
+            try
+            {
             foreach (var probe in bakedProbes)
             {
                 if (string.IsNullOrEmpty(probe.gameObject.scene.path))
@@ -462,7 +482,8 @@ namespace UnityEditor.Rendering.HighDefinition
                 AssignRenderData(probe, bakedTexturePath);
                 EditorUtility.SetDirty(probe);
             }
-            AssetDatabase.StopAssetEditing();
+            }
+            finally { AssetDatabase.StopAssetEditing(); }
 
             // case 1158677
             // The AssetPipeline will destroy and recreate the textures
@@ -479,14 +500,17 @@ namespace UnityEditor.Rendering.HighDefinition
                 }
             }
 
-            hdPipeline.reflectionProbeBaking = false;
-
             return true;
+            }
+            finally { if (hdPipeline != null) hdPipeline.reflectionProbeBaking = previousBaking; }
         }
+
+        static HDProbe[] GetBakedProbes() => HDProbeSystem.bakedProbes
+            .Where(p => !MobileReflectionBaking.active || p is HDAdditionalReflectionData).ToArray();
 
         bool IsCurrentSRPValid(out HDRenderPipeline hdPipeline)
         {
-            if (RenderPipelineManager.currentPipeline is HDRenderPipeline hd && hd.asset.rendererMode == HDRendererMode.Desktop)
+            if (RenderPipelineManager.currentPipeline is HDRenderPipeline hd)
             {
                 hdPipeline = hd;
                 return true;
@@ -649,8 +673,10 @@ namespace UnityEditor.Rendering.HighDefinition
                 {
                     Debug.Assert(probeRT.dimension == TextureDimension.Cube);
 
-                        var positionSettings = ProbeCapturePositionSettings.ComputeFrom(probe, null);
-                    HDRenderUtilities.Render(probe.settings, positionSettings, probeRT,
+                    var positionSettings = ProbeCapturePositionSettings.ComputeFrom(probe, null);
+                    if (MobileReflectionBaking.active)
+                        MobileReflectionBaking.Render(probe, probeRT, out cameraSettings, out cameraPositionSettings);
+                    else HDRenderUtilities.Render(probe.settings, positionSettings, probeRT,
                         out cameraSettings, out cameraPositionSettings,
                         forceFlipY: true,
                         forceInvertBackfaceCulling: true,     // Cubemap have an RHS standard, so we need to invert the face culling
@@ -692,7 +718,7 @@ namespace UnityEditor.Rendering.HighDefinition
 
         internal static void ImportAssetAt(HDProbe probe, string file)
         {
-            var hd = (HDRenderPipeline)RenderPipelineManager.currentPipeline;
+            var hd = (HDRenderPipelineAsset)GraphicsSettings.currentRenderPipeline;
             switch (probe.settings.type)
             {
                 case ProbeSettings.ProbeType.ReflectionProbe:
@@ -710,7 +736,7 @@ namespace UnityEditor.Rendering.HighDefinition
                     settings.wrapMode = TextureWrapMode.Repeat;
                     settings.aniso = 1;
                     importer.SetTextureSettings(settings);
-                    importer.mipmapEnabled = false;
+                    importer.mipmapEnabled = MobileReflectionBaking.active;
                     importer.textureCompression = hd.currentPlatformRenderPipelineSettings.lightLoopSettings.reflectionCacheCompressed
                         ? TextureImporterCompression.Compressed
                         : TextureImporterCompression.Uncompressed;

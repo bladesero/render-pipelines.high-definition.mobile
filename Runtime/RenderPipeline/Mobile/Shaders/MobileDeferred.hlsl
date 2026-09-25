@@ -76,10 +76,10 @@ float4 DeferredFrag(DeferredVaryings input) : SV_Target
     float4 baseMetal, normalSmoothAO; float depth;
     MobileReadGBuffer(input.positionCS.xy, baseMetal, normalSmoothAO, depth);
     float3 positionWS = MobilePositionFromDepth(input.positionCS.xy, depth);
-    float3 normalWS = MobileDecodeNormal(normalSmoothAO.rg);
-    float3 view = _MobileCameraForward.w > 0 ? -_MobileCameraForward.xyz : SafeNormalize(_MobileCameraPosition.xyz - positionWS);
+    mobile_half3 normalWS = MobileDecodeNormal(normalSmoothAO.rg);
+    mobile_half3 view = _MobileCameraForward.w > 0 ? -_MobileCameraForward.xyz : SafeNormalize(_MobileCameraPosition.xyz - positionWS);
     MobileBRDFData brdf = MobileInitializeBRDF(baseMetal.rgb, baseMetal.a, normalSmoothAO.b, 1);
-    float3 light = _MobileMainDirection.xyz;
+    mobile_half3 light = _MobileMainDirection.xyz;
     float3 radiance = _MobileMainColor.rgb;
     if (_MobileLightIndex >= 0)
     {
@@ -96,7 +96,7 @@ float4 DeferredFrag(DeferredVaryings input) : SV_Target
         if ((_MobileLightFlags & 1) == 0) radiance *= MobileLocalShadow(positionWS, index);
     }
 #if defined(MOBILE_EXTENDED_LIT)
-    float4 fresnelCoat;
+    mobile_half4 fresnelCoat;
     #if defined(MOBILE_NATIVE_INPUT)
         fresnelCoat = LOAD_FRAMEBUFFER_INPUT(3, input.positionCS.xy);
     #else

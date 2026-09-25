@@ -319,6 +319,7 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             }
             yield return null; // Native reflection-probe spatial registration runs in the player loop.
             var first = Capture();
+            TestContext.WriteLine("First reflection capture: count=" + Shader.GetGlobalInt("_MobileReflectionCount16") + ", HDRP=" + Shader.GetGlobalInt("_MobileReflectionHasHDRPProbes") + ", center=" + Center(first));
             GraphicsSettings.useScriptableRenderPipelineBatching = false;
             Same(first, Capture());
             GraphicsSettings.useScriptableRenderPipelineBatching = true;

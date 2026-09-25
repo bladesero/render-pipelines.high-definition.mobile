@@ -75,12 +75,12 @@ MobileVaryings MobileVert(MobileAttributes input)
     return output;
 }
 
-half4 MobileBase(float2 uv)
+mobile_half4 MobileBase(float2 uv)
 {
 #if defined(MOBILE_LIT)
-    half4 color = SAMPLE_TEXTURE2D(_BaseColorMap, sampler_BaseColorMap, uv * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw) * _BaseColor;
+    mobile_half4 color = SAMPLE_TEXTURE2D(_BaseColorMap, sampler_BaseColorMap, uv * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw) * _BaseColor;
 #else
-    half4 color = SAMPLE_TEXTURE2D(_UnlitColorMap, sampler_UnlitColorMap, uv * _UnlitColorMap_ST.xy + _UnlitColorMap_ST.zw) * _UnlitColor;
+    mobile_half4 color = SAMPLE_TEXTURE2D(_UnlitColorMap, sampler_UnlitColorMap, uv * _UnlitColorMap_ST.xy + _UnlitColorMap_ST.zw) * _UnlitColor;
 #endif
     color.a = lerp(_AlphaRemapMin, _AlphaRemapMax, color.a);
 #if defined(_ALPHATEST_ON)
@@ -93,17 +93,17 @@ half4 MobileBase(float2 uv)
     return color;
 }
 
-float3 MobileBaked(float2 uv, half3 normal)
+float3 MobileBaked(float2 uv, mobile_half3 normal)
 {
 #if defined(LIGHTMAP_ON)
-    half4 encoded = SAMPLE_TEXTURE2D(unity_Lightmap, samplerunity_Lightmap, uv);
+    mobile_half4 encoded = SAMPLE_TEXTURE2D(unity_Lightmap, samplerunity_Lightmap, uv);
     #if defined(UNITY_LIGHTMAP_FULL_HDR)
         float3 lighting = encoded.rgb;
     #else
         float3 lighting = DecodeLightmap(encoded, float4(LIGHTMAP_HDR_MULTIPLIER, LIGHTMAP_HDR_EXPONENT, 0, 0));
     #endif
     #if defined(DIRLIGHTMAP_COMBINED)
-        half4 direction = SAMPLE_TEXTURE2D(unity_LightmapInd, samplerunity_Lightmap, uv);
+        mobile_half4 direction = SAMPLE_TEXTURE2D(unity_LightmapInd, samplerunity_Lightmap, uv);
         lighting *= (dot(normal, direction.xyz - 0.5) + 0.5) / max(direction.w, 0.0001);
     #endif
     return lighting;
@@ -135,17 +135,21 @@ float MobileEnvironmentProbeWeight(float3 position, float4 boxMin, float4 boxMax
     return boxMax.w > 0 ? saturate(distance / boxMax.w) : (distance >= 0 ? 1 : 0);
 }
 
+#include "MobileReflection.hlsl"
+
 float3 MobileSampleReflection(float3 positionWS, float3 reflected, float perceptualRoughness)
 {
+    if (_MobileReflectionHasHDRPProbes > 0)
+        return MobileSampleHDRPReflection(positionWS, reflected, perceptualRoughness);
     float mip = PerceptualRoughnessToMipmapLevel(perceptualRoughness);
     float3 direction0 = MobileBoxDirection(reflected, positionWS, unity_SpecCube0_ProbePosition, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
-    half4 env = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube0, samplerunity_SpecCube0, direction0, mip);
+    mobile_half4 env = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube0, samplerunity_SpecCube0, direction0, mip);
     float3 indirectSpecular = DecodeHDREnvironment(env, unity_SpecCube0_HDR);
     float blend = unity_SpecCube1_HDR.x > 0 ? saturate(unity_SpecCube0_BoxMin.w) : 1;
     if (_MobileEnvironmentParams.x < 0.5 && blend < 0.99999)
     {
         float3 direction1 = MobileBoxDirection(reflected, positionWS, unity_SpecCube1_ProbePosition, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
-        half4 env1 = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube1, samplerunity_SpecCube0, direction1, mip);
+        mobile_half4 env1 = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube1, samplerunity_SpecCube0, direction1, mip);
         indirectSpecular = lerp(DecodeHDREnvironment(env1, unity_SpecCube1_HDR), indirectSpecular, blend);
     }
     if (_MobileEnvironmentParams.x > 0)
@@ -173,7 +177,7 @@ MobileExtendedGBufferOutput MobileFrag(MobileVaryings input, FRONT_FACE_TYPE fro
 #elif defined(MOBILE_GBUFFER)
 MobileGBufferOutput MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SEMANTIC)
 #else
-half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SEMANTIC) : SV_Target
+mobile_half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SEMANTIC) : SV_Target
 #endif
 {
     UNITY_SETUP_INSTANCE_ID(input);
@@ -182,7 +186,7 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
     // single-sided surface without changing desktop ShaderLab render state.
     if (!IS_FRONT_VFACE(frontFace, true, false)) discard;
 #endif
-    half4 color = MobileBase(input.uv);
+    mobile_half4 color = MobileBase(input.uv);
 #if defined(MOBILE_SHADOW)
     return 0;
 #elif defined(MOBILE_PICKING)
@@ -205,10 +209,10 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
         #elif defined(MOBILE_GBUFFER)
             if (_MaterialID != 1) discard;
         #else
-            if (_MaterialID != 1) return half4(1, 0, 1, 1);
+            if (_MaterialID != 1) return mobile_half4(1, 0, 1, 1);
         #endif
     #endif
-    half outputWeight = 1;
+    mobile_half outputWeight = 1;
     bool preserveSpecular = false;
 #if defined(_SURFACE_TYPE_TRANSPARENT)
     #if defined(MOBILE_LIT)
@@ -221,17 +225,17 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
         emission *= SAMPLE_TEXTURE2D(_EmissiveColorMap, sampler_EmissiveColorMap, input.uv * _EmissiveColorMap_ST.xy + _EmissiveColorMap_ST.zw).rgb;
     #endif
     #if defined(MOBILE_LIT)
-        emission *= lerp(half3(1, 1, 1), color.rgb, _AlbedoAffectEmissive);
-        half3 n = input.normalWS;
-        half3 normalTS = half3(0, 0, 1);
+        emission *= lerp(mobile_half3(1, 1, 1), color.rgb, _AlbedoAffectEmissive);
+        mobile_half3 n = input.normalWS;
+        mobile_half3 normalTS = mobile_half3(0, 0, 1);
         #if defined(_NORMALMAP) || defined(_DETAIL_MAP)
-            half3 t = input.tangentWS.xyz;
+            mobile_half3 t = input.tangentWS.xyz;
             // Missing/parallel tangents have no meaningful UV frame. Use a stable
             // orthogonal frame instead of normalizing zero (also safe for skinned meshes).
             if (dot(cross(n, t), cross(n, t)) < 1e-6 || abs(input.tangentWS.w) < 0.5)
                 t = SafeNormalize(cross(abs(n.z) < 0.999 ? float3(0, 0, 1) : float3(0, 1, 0), n));
-            half handedness = input.tangentWS.w < 0 ? -1 : 1;
-            half3 b = cross(n, t) * handedness;
+            mobile_half handedness = input.tangentWS.w < 0 ? -1 : 1;
+            mobile_half3 b = cross(n, t) * handedness;
             #if defined(_NORMALMAP)
                 normalTS = UnpackNormalScale(SAMPLE_TEXTURE2D(_NormalMap, sampler_NormalMap, input.uv * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw), _NormalScale);
             #endif
@@ -240,38 +244,38 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
             float2 detailUV = input.uv * _UVDetailsMappingMask.x + input.detailUV * _UVDetailsMappingMask.y;
             detailUV = detailUV * _DetailMap_ST.xy + _DetailMap_ST.zw;
             if (_LinkDetailsWithBase > 0) detailUV = detailUV * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw;
-            half4 detail = SAMPLE_TEXTURE2D(_DetailMap, sampler_DetailMap, detailUV);
-            half detailMask = 1;
+            mobile_half4 detail = SAMPLE_TEXTURE2D(_DetailMap, sampler_DetailMap, detailUV);
+            mobile_half detailMask = 1;
             #if defined(_MASKMAP)
                 detailMask = SAMPLE_TEXTURE2D(_MaskMap, sampler_MaskMap, input.uv * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw).b;
             #endif
-            half detailAlbedo = detail.r * 2 - 1;
-            half speed = saturate(abs(detailAlbedo) * _DetailAlbedoScale);
-            half3 overlay = lerp(sqrt(max(color.rgb, 0)), detailAlbedo < 0 ? 0 : 1, speed * speed);
+            mobile_half detailAlbedo = detail.r * 2 - 1;
+            mobile_half speed = saturate(abs(detailAlbedo) * _DetailAlbedoScale);
+            mobile_half3 overlay = lerp(sqrt(max(color.rgb, 0)), detailAlbedo < 0 ? 0 : 1, speed * speed);
             color.rgb = lerp(color.rgb, saturate(overlay * overlay), detailMask);
-            half3 detailNormal = UnpackNormalAG(detail, _DetailNormalScale);
+            mobile_half3 detailNormal = UnpackNormalAG(detail, _DetailNormalScale);
             normalTS = lerp(normalTS, BlendNormalRNM(normalTS, detailNormal), detailMask);
         #endif
         #if defined(_DOUBLESIDED_ON)
-            normalTS *= IS_FRONT_VFACE(frontFace, half3(1, 1, 1), _DoubleSidedConstants.xyz);
+            normalTS *= IS_FRONT_VFACE(frontFace, mobile_half3(1, 1, 1), _DoubleSidedConstants.xyz);
         #endif
         #if defined(_NORMALMAP) || defined(_DETAIL_MAP)
-            n = SafeNormalize(t * normalTS.x + b * normalTS.y + n * normalTS.z);
+            n = MobileNormalizeSurface(t * normalTS.x + b * normalTS.y + n * normalTS.z);
         #else
-            n = SafeNormalize(n * normalTS.z);
+            n = MobileNormalizeSurface(n * normalTS.z);
         #endif
-        half metallic = _Metallic, smoothness = _Smoothness, ao = 1;
+        mobile_half metallic = _Metallic, smoothness = _Smoothness, ao = 1;
         #if defined(_MASKMAP)
-            half4 mask = SAMPLE_TEXTURE2D(_MaskMap, sampler_MaskMap, input.uv * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw);
+            mobile_half4 mask = SAMPLE_TEXTURE2D(_MaskMap, sampler_MaskMap, input.uv * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw);
             metallic = lerp(_MetallicRemapMin, _MetallicRemapMax, mask.r);
             smoothness = lerp(_SmoothnessRemapMin, _SmoothnessRemapMax, mask.a);
             ao = lerp(_AORemapMin, _AORemapMax, mask.g);
         #endif
         #if defined(_DETAIL_MAP)
-            half ds = detail.b * 2 - 1;
+            mobile_half ds = detail.b * 2 - 1;
             smoothness = lerp(smoothness, saturate(lerp(smoothness, ds < 0 ? 0 : 1, saturate(abs(ds) * _DetailSmoothnessScale))), detailMask);
         #endif
-        half3 v = _MobileCameraForward.w > 0 ? -_MobileCameraForward.xyz : SafeNormalize(_MobileCameraPosition.xyz - input.positionWS);
+        mobile_half3 v = _MobileCameraForward.w > 0 ? -_MobileCameraForward.xyz : SafeNormalize(_MobileCameraPosition.xyz - input.positionWS);
 #if defined(MOBILE_EXTENDED_LIT)
         MobileExtendedSurface extended = (MobileExtendedSurface)0;
         float2 featureUV = input.uv * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw;
@@ -322,7 +326,7 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
         }
 #endif
         MobileBRDFData brdf = MobileInitializeBRDF(color.rgb, metallic, smoothness, preserveSpecular ? color.a : 1.0h);
-        float3 shadingNormal = n;
+        mobile_half3 shadingNormal = n;
 #if defined(MOBILE_EXTENDED_LIT)
         brdf.specular = extended.fresnel0;
         if (_MaterialID == 0 || _MaterialID == 4 || _MaterialID == 5) brdf.diffuse = color.rgb;
@@ -354,7 +358,7 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
         }
         if (extended.coat > 0)
         {
-            float coatFresnel = F_Schlick(0.04, saturate(dot(n, v))) * extended.coat;
+            mobile_half coatFresnel = MobileFresnel(mobile_half3(0.04, 0.04, 0.04), saturate(dot(n, v))).x * extended.coat;
             float3 coatReflection = MobileSampleReflection(input.positionWS, reflect(-v, n), 0.1);
             result = diffuseIBL * (1 - coatFresnel) + (result - diffuseIBL) * Sq(1 - coatFresnel)
                 + coatReflection * _MobileIndirectMultiplier.y * (coatFresnel * ao / 1.0001);
@@ -377,7 +381,7 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
             uint index = (uint)unity_LightIndices[0][i];
             float3 delta = _MobileLightPositions[index].xyz - input.positionWS;
             float distanceSquared = max(dot(delta, delta), HALF_MIN);
-            half3 l = delta * rsqrt(distanceSquared);
+            mobile_half3 l = delta * rsqrt(distanceSquared);
             float rangeFade = saturate(1 - pow(distanceSquared * _MobileLightPositions[index].w, 2));
             float spot = saturate(dot(l, _MobileLightSpots[index].xyz) * _MobileLightAttenuations[index].x + _MobileLightAttenuations[index].y);
 #if defined(MOBILE_EXTENDED_LIT)
@@ -396,8 +400,11 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
         // HDRP Unlit base color is display-referred; only emission has an
         // exposure weight. Applying camera EV to the whole Unlit result is wrong.
         float3 result = color.rgb * _MobileDeExposure;
+        if (_MobileReflectionCapture > 0) result *= MobileCurrentExposure();
     #endif
-    result += emission * lerp(1.0, MobileCurrentExposure(), _EmissiveExposureWeight);
+    // Probe range compression applies to every radiance source, including
+    // display-referred Unlit and emission with zero camera exposure weight.
+    result += emission * lerp(1.0, MobileCurrentExposure(), _MobileReflectionCapture > 0 ? 1 : _EmissiveExposureWeight);
 #if defined(MOBILE_EXTENDED_GBUFFER)
     MobileExtendedGBufferOutput output;
     MobileGBufferOutput compact = MobileEncodeGBuffer(color.rgb, metallic, n, smoothness, ao, result);
@@ -417,7 +424,7 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
     #endif
     // Physical intensities can exceed the storage range at specular peaks. Accumulate
     // in float and bound the final value before writing the fixed RGBA16F target.
-    return half4(clamp(result, 0, 65504), color.a);
+    return mobile_half4(clamp(result, 0, 65504), color.a);
 #endif
 #endif
 }

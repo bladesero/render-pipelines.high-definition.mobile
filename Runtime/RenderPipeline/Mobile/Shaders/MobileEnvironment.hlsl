@@ -1,6 +1,7 @@
 // Included by the existing Sky shader, so previously serialized Mobile assets
 // automatically retain this raster-only shader in Player builds.
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "MobilePrecision.hlsl"
 #include "MobileSkySampling.hlsl"
 TEXTURECUBE(_MobileEnvironmentSource); SAMPLER(sampler_MobileEnvironmentSource);
 float4 _MobileEnvironmentFilter; // face, perceptual roughness, source resolution, unused
@@ -35,9 +36,9 @@ float2 EnvironmentXi(uint i)
                   | ((i & 8u) >> 1) | ((i & 16u) >> 3) | ((i & 32u) >> 5);
     return float2((i + 0.5) / 64.0, reversed / 64.0);
 }
-half4 EnvironmentCapture(EnvironmentVaryings input) : SV_Target
-{ return half4(min(MobileSkyRadiance(EnvironmentDirection(input.uv)) / 1024, 65504), 1); }
-half4 EnvironmentDiffuse(EnvironmentVaryings input) : SV_Target
+mobile_half4 EnvironmentCapture(EnvironmentVaryings input) : SV_Target
+{ return mobile_half4(min(MobileSkyRadiance(EnvironmentDirection(input.uv)) / 1024, 65504), 1); }
+mobile_half4 EnvironmentDiffuse(EnvironmentVaryings input) : SV_Target
 {
     float3 n = EnvironmentDirection(input.uv), sum = 0;
     for (uint i = 0; i < 64; ++i)
@@ -48,13 +49,13 @@ half4 EnvironmentDiffuse(EnvironmentVaryings input) : SV_Target
         sum += SAMPLE_TEXTURECUBE_LOD(_MobileEnvironmentSource, sampler_MobileEnvironmentSource, l, 1).rgb;
     }
     // Irradiance / PI, matching MobileEnvironmentBRDF's diffuse input.
-    return half4(min(sum / 64, 65504), 1);
+    return mobile_half4(min(sum / 64, 65504), 1);
 }
-half4 EnvironmentSpecular(EnvironmentVaryings input) : SV_Target
+mobile_half4 EnvironmentSpecular(EnvironmentVaryings input) : SV_Target
 {
     float3 n = EnvironmentDirection(input.uv);
     float roughness = _MobileEnvironmentFilter.y;
-    if (roughness < 0.001) return half4(SAMPLE_TEXTURECUBE_LOD(_MobileEnvironmentSource, sampler_MobileEnvironmentSource, n, 0).rgb, 1);
+    if (roughness < 0.001) return mobile_half4(SAMPLE_TEXTURECUBE_LOD(_MobileEnvironmentSource, sampler_MobileEnvironmentSource, n, 0).rgb, 1);
     float a = roughness * roughness, a2 = a * a;
     float3 sum = 0; float weight = 0;
     for (uint i = 0; i < 64; ++i)
@@ -76,5 +77,5 @@ half4 EnvironmentSpecular(EnvironmentVaryings input) : SV_Target
             weight += nl;
         }
     }
-    return half4(min(sum / max(weight, 1e-5), 65504), 1);
+    return mobile_half4(min(sum / max(weight, 1e-5), 65504), 1);
 }

@@ -76,5 +76,45 @@ Shader "Hidden/Debug/ReflectionProbePreview"
             }
             ENDHLSL
         }
+        Pass
+        {
+            Name "MobileReflectionProbePreview"
+            ZTest LEqual ZWrite On Cull Back
+            CGPROGRAM
+            #pragma target 3.5
+            #pragma only_renderers d3d11 vulkan
+            #pragma editor_sync_compilation
+            #pragma vertex MobilePreviewVert
+            #pragma fragment MobilePreviewFrag
+            #include "UnityCG.cginc"
+            samplerCUBE _Cubemap;
+            sampler2D _MobileExposureTexture;
+            float _MobileExposure, _MobileAutomaticExposure;
+            float4x4 _MobileProbePreviewVP;
+            float3 _MobileProbePreviewCamera;
+            float _MobileProbePreviewIntensity, _MipLevel, _Exposure;
+            struct MobilePreviewVaryings
+            {
+                float4 positionCS : SV_POSITION;
+                float3 positionWS : TEXCOORD0;
+                float3 normalWS : TEXCOORD1;
+            };
+            MobilePreviewVaryings MobilePreviewVert(appdata_base input)
+            {
+                MobilePreviewVaryings output;
+                output.positionWS = mul(unity_ObjectToWorld, input.vertex).xyz;
+                output.positionCS = mul(_MobileProbePreviewVP, float4(output.positionWS, 1));
+                output.normalWS = UnityObjectToWorldNormal(input.normal);
+                return output;
+            }
+            float4 MobilePreviewFrag(MobilePreviewVaryings input) : SV_Target
+            {
+                float3 reflected = reflect(normalize(input.positionWS - _MobileProbePreviewCamera), normalize(input.normalWS));
+                float exposure = _MobileAutomaticExposure > 0
+                    ? tex2Dlod(_MobileExposureTexture, float4(.5, .5, 0, 0)).r : _MobileExposure;
+                return float4(texCUBElod(_Cubemap, float4(reflected, _MipLevel)).rgb * (_MobileProbePreviewIntensity * exp2(_Exposure) * exposure), 1);
+            }
+            ENDCG
+        }
     }
 }

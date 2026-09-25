@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.Rendering.HighDefinition;
 
 namespace UnityEditor.Rendering.HighDefinition
@@ -43,7 +44,19 @@ namespace UnityEditor.Rendering.HighDefinition
             var capturePosition = cameraPositionSettings.position;
 
             material.SetTexture("_Cubemap", probe.texture);
-            material.SetPass(0);
+            bool mobile = GraphicsSettings.currentRenderPipeline is HDRenderPipelineAsset asset && asset.rendererMode == HDRendererMode.Mobile;
+            if (mobile)
+            {
+                var camera = Camera.current;
+                if (camera == null) return;
+                // Desktop's preview shader reads camera-relative HDRP constant
+                // buffers. Mobile never populates those buffers, so use the
+                // current gizmo camera and an absolute world-space transform.
+                material.SetMatrix("_MobileProbePreviewVP", GL.GetGPUProjectionMatrix(camera.projectionMatrix, camera.targetTexture != null) * camera.worldToCameraMatrix);
+                material.SetVector("_MobileProbePreviewCamera", camera.transform.position);
+                material.SetFloat("_MobileProbePreviewIntensity", probe.multiplier * Mathf.Max(probe.rangeCompressionFactor, 1e-6f));
+            }
+            if (!material.SetPass(mobile ? material.FindPass("MobileReflectionProbePreview") : 0)) return;
             Graphics.DrawMeshNow(sphere, Matrix4x4.TRS(capturePosition, Quaternion.identity, Vector3.one * capturePointPreviewSize));
 
             var ray = new Ray(capturePosition, Vector3.down);

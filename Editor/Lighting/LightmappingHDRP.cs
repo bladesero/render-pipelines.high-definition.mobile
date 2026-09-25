@@ -2,6 +2,7 @@ using System;
 using JetBrains.Annotations;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering;
 using UnityEngine.Rendering.HighDefinition;
 
 namespace UnityEditor.Rendering.HighDefinition
@@ -29,8 +30,6 @@ namespace UnityEditor.Rendering.HighDefinition
         /// </returns>
         public static Exception BakeProbe([NotNull] HDProbe probe, [NotNull] string path, BakeProbeOptions options)
         {
-            if (UnityEngine.Rendering.RenderPipelineManager.currentPipeline is HDRenderPipeline pipeline && pipeline.asset.rendererMode == HDRendererMode.Mobile)
-                return new InvalidOperationException("Reflection probes require a Desktop HDRP asset for baking.");
             // Check arguments
             if (probe == null || probe.Equals(null)) return new ArgumentNullException(nameof(probe));
             if (string.IsNullOrEmpty(path))
@@ -47,8 +46,8 @@ namespace UnityEditor.Rendering.HighDefinition
 
                     // Render and write
                     var cubeRT = HDRenderUtilities.CreateReflectionProbeRenderTarget(textureSize, probeFormat);
-                    HDBakedReflectionSystem.RenderAndWriteToFile(probe, path, cubeRT);
-                    cubeRT.Release();
+                    try { HDBakedReflectionSystem.RenderAndWriteToFile(probe, path, cubeRT); }
+                    finally { cubeRT.Release(); CoreUtils.Destroy(cubeRT); }
 
                     // Import asset at target location
                     AssetDatabase.ImportAsset(path);
@@ -132,7 +131,7 @@ namespace UnityEditor.Rendering.HighDefinition
                         case Mode.UseProbeResolution:
                         {
                             if (probe == null || probe.Equals(null)) throw new ArgumentNullException(nameof(probe));
-                            return (int)probe.resolution;
+                            return probe is HDAdditionalReflectionData ? (int)probe.cubeResolution : (int)probe.resolution;
                         }
                         default: throw new ArgumentOutOfRangeException(nameof(mode));
                     }

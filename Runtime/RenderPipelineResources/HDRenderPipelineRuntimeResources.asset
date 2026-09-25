@@ -403,4 +403,9 @@ MonoBehaviour:
     probeDebugSphere: {fileID: 532591105809680800, guid: b979359990531a2489ebd7a0ef0f9f01,
       type: 3}
     pyramidMesh: {fileID: 10213, guid: 0000000000000000e000000000000000, type: 0}
+  mobile:
+    compositeShader: {fileID: 4800000, guid: 0c76816d54f249a5acc1c152ace12937, type: 3}
+    skyShader: {fileID: 4800000, guid: a99506d86e904410b978a98b3e1ee325, type: 3}
+    errorShader: {fileID: 4800000, guid: 6ee053a685a64e2ea8fa7f5af0222f0a, type: 3}
+    deferredShader: {fileID: 4800000, guid: ac272a51f4d058c49af307be2abd9cf7, type: 3}
   m_Version: 4

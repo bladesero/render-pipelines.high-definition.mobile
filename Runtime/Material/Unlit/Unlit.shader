@@ -2,6 +2,10 @@ Shader "HDRP/Unlit"
 {
     Properties
     {
+        [ToggleUI] _MobileReceiveShadows("Mobile Receive Shadows", Float) = 1
+        [ToggleUI] _MobileSpecularHighlights("Mobile Specular Highlights", Float) = 1
+        [ToggleUI] _MobileUserStencilBit("Mobile User Stencil Bit", Float) = 0
+        [HideInInspector] _MobileStencilRef("Mobile Stencil Ref", Int) = 96
         // Be careful, do not change the name here to _Color. It will conflict with the "fake" parameters (see end of properties) required for GI.
         [MainColor] _UnlitColor("Color", Color) = (1,1,1,1)
         [MainTexture] _UnlitColorMap("ColorMap", 2D) = "white" {}
@@ -124,7 +128,7 @@ Shader "HDRP/Unlit"
             #pragma shader_feature_local _DOUBLESIDED_ON
             #if defined(HDRP_MOBILE_RENDERER)
             #define MOBILE_SELECTION 1
-            
+
             #define MobileVert Vert
             #define MobileFrag Frag
             #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobileMaterial.hlsl"
@@ -149,7 +153,7 @@ Shader "HDRP/Unlit"
             #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/ShaderPass/ShaderPassDepthOnly.hlsl"
             #pragma editor_sync_compilation
 
-            
+
             #endif
             ENDHLSL
         }
@@ -171,7 +175,7 @@ Shader "HDRP/Unlit"
             #pragma shader_feature_local _DOUBLESIDED_ON
             #if defined(HDRP_MOBILE_RENDERER)
             #define MOBILE_PICKING 1
-            
+
             #define MobileVert Vert
             #define MobileFrag Frag
             #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobileMaterial.hlsl"
@@ -196,7 +200,7 @@ Shader "HDRP/Unlit"
             #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/ShaderPass/ShaderPassDepthOnly.hlsl"
             #pragma editor_sync_compilation
 
-            
+
             #endif
             ENDHLSL
         }
@@ -210,7 +214,22 @@ Shader "HDRP/Unlit"
             ZTest LEqual
             Blend [_SrcBlend] [_DstBlend], [_AlphaSrcBlend] [_AlphaDstBlend]
             HLSLPROGRAM
-            
+
+            #include_with_pragmas "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobilePass.hlsl"
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "MobileForwardOnly"
+            Tags { "LightMode" = "MobileForwardOnly" }
+            Cull [_CullMode]
+            ZWrite [_ZWrite]
+            ZTest LEqual
+            Blend [_SrcBlend] [_DstBlend], [_AlphaSrcBlend] [_AlphaDstBlend]
+            Stencil { Ref [_MobileStencilRef] ReadMask 255 WriteMask 255 Comp Always Pass Replace }
+            HLSLPROGRAM
+
             #include_with_pragmas "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobilePass.hlsl"
             ENDHLSL
         }
@@ -423,7 +442,7 @@ Shader "HDRP/Unlit"
             #pragma shader_feature_local _DOUBLESIDED_ON
             #if defined(HDRP_MOBILE_RENDERER)
             #define MOBILE_SHADOW 1
-            
+
             #define MobileVert Vert
             #define MobileFrag Frag
             #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobileMaterial.hlsl"
@@ -692,13 +711,13 @@ Shader "HDRP/Unlit"
 
             #pragma only_renderers d3d11 xboxseries ps5
             #pragma raytracing surface_shader
-            
+
             #pragma multi_compile _ SENSORSDK_OVERRIDE_REFLECTANCE
-            
+
             #ifdef SENSORSDK_OVERRIDE_REFLECTANCE
                 #define SENSORSDK_ENABLE_LIDAR
             #endif
-            
+
             #define SHADERPASS SHADERPASS_PATH_TRACING
 
             #define SHADER_UNLIT

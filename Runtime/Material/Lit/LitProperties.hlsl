@@ -100,6 +100,10 @@ SAMPLER(sampler_LayerInfluenceMaskMap);
 #endif
 
 CBUFFER_START(UnityPerMaterial)
+float _MobileReceiveShadows, _MobileSpecularHighlights, _MobileUserStencilBit;
+int _MobileStencilRef;
+float _MaterialID;
+float _TransmissionEnable;
 
 // shared constant between lit and layered lit
 float _AlphaCutoff;

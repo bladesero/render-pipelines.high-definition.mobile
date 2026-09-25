@@ -25,7 +25,6 @@ namespace UnityEditor.Rendering.HighDefinition
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             s_Asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
             s_Asset.rendererMode = HDRendererMode.Mobile;
-            MobileRenderEditor.AssignResources(s_Asset);
             GraphicsSettings.renderPipelineAsset = s_Asset;
             QualitySettings.renderPipeline = s_Asset;
             var cameraObject = new GameObject("Validation Camera", typeof(Camera));
@@ -247,7 +246,49 @@ namespace UnityEditor.Rendering.HighDefinition
 
         public static void ExportAndroid() => BuildAndroid(true);
 
-        static void BuildAndroid(bool export)
+        public static void ExportDeferredAndroid() => BuildAndroid(true, true);
+
+        public static void BuildDeferredD3D11() => BuildDeferredWindows(GraphicsDeviceType.Direct3D11);
+        public static void BuildDeferredD3D12() => BuildDeferredWindows(GraphicsDeviceType.Direct3D12);
+
+        static void BuildDeferredWindows(GraphicsDeviceType api)
+        {
+            MobileProductionValidation.RequireIsolatedProject();
+            try
+            {
+                const string folder = "Assets/MobileBenchmark";
+                var asset = AssetDatabase.LoadAssetAtPath<HDRenderPipelineAsset>(folder + "/Mobile.asset");
+                if (asset == null) throw new InvalidOperationException("Generate the Mobile benchmark before Windows build validation.");
+                asset.rendererMode = HDRendererMode.Mobile;
+                asset.mobileSettings.renderingPath = MobileRenderingPath.Deferred;
+                asset.mobileSettings.deferredExecution = MobileDeferredExecution.Auto;
+                asset.mobileSettings.extendedLitMaterials = true;
+                EditorUtility.SetDirty(asset);
+                GraphicsSettings.renderPipelineAsset = asset;
+                for (int i = 0; i < QualitySettings.names.Length; i++)
+                {
+                    QualitySettings.SetQualityLevel(i, false);
+                    QualitySettings.renderPipeline = asset;
+                }
+                PlayerSettings.colorSpace = ColorSpace.Linear;
+                PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
+                PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64, new[] { api });
+                PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
+                EditorSceneManager.OpenScene(folder + "/Benchmark.unity", OpenSceneMode.Single);
+                AssetDatabase.SaveAssets();
+                var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+                {
+                    scenes = new[] { folder + "/Benchmark.unity" }, target = BuildTarget.StandaloneWindows64,
+                    locationPathName = Path.Combine(Path.GetDirectoryName(Application.dataPath), "deferred-" + api, "MobileDeferred.exe"),
+                    options = BuildOptions.Development
+                });
+                Debug.Log("HDRP_MOBILE_WINDOWS_" + api + "=" + report.summary.result);
+                EditorApplication.Exit(report.summary.result == BuildResult.Succeeded ? 0 : 1);
+            }
+            catch (Exception error) { Debug.LogException(error); EditorApplication.Exit(1); }
+        }
+
+        static void BuildAndroid(bool export, bool deferred = false)
         {
             MobileProductionValidation.RequireIsolatedProject();
             try
@@ -260,6 +301,12 @@ namespace UnityEditor.Rendering.HighDefinition
                     MobileBenchmarkBuilder.CreateAt(folder);
                 }
                 var asset = AssetDatabase.LoadAssetAtPath<HDRenderPipelineAsset>(folder + "/Mobile.asset");
+                if (deferred)
+                {
+                    asset.mobileSettings.renderingPath = MobileRenderingPath.Deferred;
+                    asset.mobileSettings.deferredExecution = MobileDeferredExecution.Auto;
+                    asset.mobileSettings.extendedLitMaterials = true;
+                }
                 asset.mobileSettings.drawUnsupportedMaterials = false;
                 EditorUtility.SetDirty(asset);
                 var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(folder + "/Volume.asset");

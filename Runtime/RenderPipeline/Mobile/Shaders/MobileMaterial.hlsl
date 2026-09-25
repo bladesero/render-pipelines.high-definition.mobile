@@ -3,6 +3,12 @@
 #include "MobileInput.hlsl"
 #include "MobileBRDF.hlsl"
 #include "MobileShadow.hlsl"
+#if defined(MOBILE_EXTENDED_GBUFFER) && !defined(MOBILE_EXTENDED_LIT)
+#define MOBILE_EXTENDED_LIT 1
+#endif
+#if defined(MOBILE_EXTENDED_LIT)
+#include "MobileExtendedLit.hlsl"
+#endif
 #if defined(MOBILE_LIT)
 #include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/Lit/LitProperties.hlsl"
 #else
@@ -39,7 +45,17 @@ MobileVaryings MobileVert(MobileAttributes input)
     output.normalWS = SafeNormalize(mul(input.normalOS, (float3x3)UNITY_MATRIX_I_M));
     output.tangentWS = float4(SafeNormalize(mul((float3x3)UNITY_MATRIX_M, input.tangentOS.xyz)), input.tangentOS.w * unity_WorldTransformParams.w);
 #if defined(MOBILE_SHADOW)
-    output.positionWS = MobileApplyShadowNormalBias(output.positionWS, output.normalWS, _MobileMainDirection.xyz, _MobileShadowNormalBias);
+    float3 shadowDirection = _MobileMainDirection.xyz;
+    float shadowBias = _MobileShadowNormalBias;
+    if (_MobileShadowLightPosition.w > 0)
+    {
+        float3 delta = _MobileShadowLightPosition.xyz - output.positionWS;
+        float lightDistance = max(length(delta), 0.0001);
+        shadowDirection = delta / lightDistance;
+        shadowBias *= lightDistance;
+        output.positionWS -= shadowDirection * (_MobileShadowDepthBias * lightDistance);
+    }
+    output.positionWS = MobileApplyShadowNormalBias(output.positionWS, output.normalWS, shadowDirection, shadowBias);
 #endif
     #if defined(MOBILE_PICKING) || defined(MOBILE_SELECTION) || defined(MOBILE_SHADOW)
         output.positionCS = mul(unity_MatrixVP, float4(output.positionWS, 1));
@@ -119,7 +135,46 @@ float MobileEnvironmentProbeWeight(float3 position, float4 boxMin, float4 boxMax
     return boxMax.w > 0 ? saturate(distance / boxMax.w) : (distance >= 0 ? 1 : 0);
 }
 
+float3 MobileSampleReflection(float3 positionWS, float3 reflected, float perceptualRoughness)
+{
+    float mip = PerceptualRoughnessToMipmapLevel(perceptualRoughness);
+    float3 direction0 = MobileBoxDirection(reflected, positionWS, unity_SpecCube0_ProbePosition, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
+    half4 env = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube0, samplerunity_SpecCube0, direction0, mip);
+    float3 indirectSpecular = DecodeHDREnvironment(env, unity_SpecCube0_HDR);
+    float blend = unity_SpecCube1_HDR.x > 0 ? saturate(unity_SpecCube0_BoxMin.w) : 1;
+    if (_MobileEnvironmentParams.x < 0.5 && blend < 0.99999)
+    {
+        float3 direction1 = MobileBoxDirection(reflected, positionWS, unity_SpecCube1_ProbePosition, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
+        half4 env1 = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube1, samplerunity_SpecCube0, direction1, mip);
+        indirectSpecular = lerp(DecodeHDREnvironment(env1, unity_SpecCube1_HDR), indirectSpecular, blend);
+    }
+    if (_MobileEnvironmentParams.x > 0)
+    {
+        float w0 = MobileEnvironmentProbeWeight(positionWS, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
+        float w1 = MobileEnvironmentProbeWeight(positionWS, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
+        // Native metadata stores the relative importance sign in BoxMin1.w.
+        if (unity_SpecCube1_BoxMin.w > 0) w1 *= 1 - w0;
+        else if (unity_SpecCube1_BoxMin.w < 0) w0 *= 1 - w1;
+        float sum = w0 + w1, normalization = max(sum, 1);
+        float3 local0 = DecodeHDREnvironment(env, unity_SpecCube0_HDR);
+        float3 direction1 = MobileBoxDirection(reflected, positionWS, unity_SpecCube1_ProbePosition, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
+        float3 local1 = DecodeHDREnvironment(SAMPLE_TEXTURECUBE_LOD(unity_SpecCube1, samplerunity_SpecCube0, direction1, mip), unity_SpecCube1_HDR);
+        float3 sky = SAMPLE_TEXTURECUBE_LOD(_MobileEnvironmentReflection, sampler_MobileEnvironmentReflection, reflected,
+            perceptualRoughness * _MobileEnvironmentParams.z).rgb * _MobileEnvironmentParams.w;
+        indirectSpecular = (local0 * w0 + local1 * w1) / normalization * _MobileIndirectMultiplier.z + sky * (1 - saturate(sum));
+    }
+    else indirectSpecular *= _MobileIndirectMultiplier.z;
+    return indirectSpecular;
+}
+
+#include "MobileGBuffer.hlsl"
+#if defined(MOBILE_EXTENDED_GBUFFER)
+MobileExtendedGBufferOutput MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SEMANTIC)
+#elif defined(MOBILE_GBUFFER)
+MobileGBufferOutput MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SEMANTIC)
+#else
 half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SEMANTIC) : SV_Target
+#endif
 {
     UNITY_SETUP_INSTANCE_ID(input);
 #if (defined(MOBILE_SELECTION) || defined(MOBILE_PICKING)) && !defined(_DOUBLESIDED_ON)
@@ -135,6 +190,24 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
 #elif defined(MOBILE_SELECTION)
     return float4(_ObjectId, _PassValue, 1, 1);
 #else
+    #if defined(MOBILE_LIT)
+        #if defined(MOBILE_EXTENDED_GBUFFER)
+            if (_MaterialID != 1 && _MaterialID != 4) discard;
+        #elif defined(MOBILE_GBUFFER)
+            if (_MaterialID != 1 || _CoatMask > 0) discard;
+        #elif defined(MOBILE_FORWARD_ONLY)
+            bool deferredEligible = _MobileDeferredExtendedLayout > 0
+                ? (_MaterialID == 1 || _MaterialID == 4) : (_MaterialID == 1 && _CoatMask <= 0);
+            if (deferredEligible) discard;
+        #endif
+        #if defined(MOBILE_EXTENDED_LIT)
+            if (_MaterialID < 0 || _MaterialID > 5) discard;
+        #elif defined(MOBILE_GBUFFER)
+            if (_MaterialID != 1) discard;
+        #else
+            if (_MaterialID != 1) return half4(1, 0, 1, 1);
+        #endif
+    #endif
     half outputWeight = 1;
     bool preserveSpecular = false;
 #if defined(_SURFACE_TYPE_TRANSPARENT)
@@ -199,37 +272,105 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
             smoothness = lerp(smoothness, saturate(lerp(smoothness, ds < 0 ? 0 : 1, saturate(abs(ds) * _DetailSmoothnessScale))), detailMask);
         #endif
         half3 v = _MobileCameraForward.w > 0 ? -_MobileCameraForward.xyz : SafeNormalize(_MobileCameraPosition.xyz - input.positionWS);
+#if defined(MOBILE_EXTENDED_LIT)
+        MobileExtendedSurface extended = (MobileExtendedSurface)0;
+        float2 featureUV = input.uv * _BaseColorMap_ST.xy + _BaseColorMap_ST.zw;
+        extended.fresnel0 = lerp(0.04, color.rgb, metallic);
+        extended.coat = _CoatMask * SAMPLE_TEXTURE2D(_CoatMaskMap, sampler_CoatMaskMap, featureUV).r;
+        float3 tangent = input.tangentWS.xyz;
+        #if defined(_TANGENTMAP)
+            float3 tangentTS = UnpackNormalmapRGorAG(SAMPLE_TEXTURE2D(_TangentMap, sampler_TangentMap, featureUV), 1);
+            float3 meshTangent = MobileOrthonormalTangent(tangent, normalize(input.normalWS));
+            tangent = meshTangent * tangentTS.x + cross(normalize(input.normalWS), meshTangent) * input.tangentWS.w * tangentTS.y + normalize(input.normalWS) * tangentTS.z;
+        #endif
+        extended.tangent = MobileOrthonormalTangent(tangent, n);
+        extended.anisotropy = _Anisotropy;
+        #if defined(_ANISOTROPYMAP)
+            extended.anisotropy *= SAMPLE_TEXTURE2D(_AnisotropyMap, sampler_AnisotropyMap, featureUV).r;
+        #endif
+        if (_MaterialID == 4)
+        {
+            extended.fresnel0 = _SpecularColor.rgb;
+            #if defined(_SPECULARCOLORMAP)
+                extended.fresnel0 *= SAMPLE_TEXTURE2D(_SpecularColorMap, sampler_SpecularColorMap, featureUV).rgb;
+            #endif
+            if (_EnergyConservingSpecularColor > 0) color.rgb *= 1 - Max3(extended.fresnel0.r, extended.fresnel0.g, extended.fresnel0.b);
+        }
+        if (_MaterialID == 0 || _MaterialID == 5)
+        {
+            uint profile = MobileDiffusionIndex(asuint(_DiffusionProfileHash));
+            extended.fresnel0 = _MobileDiffusionTint[profile].aaa;
+            extended.features = float4(_SubsurfaceMask, _Thickness, profile, _TransmissionMask);
+            if (_MaterialID == 0 && _TransmissionEnable < 0.5) extended.features.w = 0;
+            #if defined(_SUBSURFACE_MASK_MAP)
+                extended.features.x *= SAMPLE_TEXTURE2D(_SubsurfaceMaskMap, sampler_SubsurfaceMaskMap, featureUV).r;
+            #endif
+            #if defined(_THICKNESSMAP)
+                extended.features.y = _ThicknessRemap.x + _ThicknessRemap.y * SAMPLE_TEXTURE2D(_ThicknessMap, sampler_ThicknessMap, featureUV).r;
+            #endif
+            #if defined(_TRANSMISSION_MASK_MAP)
+                extended.features.w *= SAMPLE_TEXTURE2D(_TransmissionMaskMap, sampler_TransmissionMaskMap, featureUV).r;
+            #endif
+        }
+        if (_MaterialID == 3)
+        {
+            extended.features.x = _IridescenceMask * SAMPLE_TEXTURE2D(_IridescenceMaskMap, sampler_IridescenceMaskMap, featureUV).r;
+            extended.features.y = _IridescenceThickness;
+            #if defined(_IRIDESCENCE_THICKNESSMAP)
+                extended.features.y = _IridescenceThicknessRemap.x + _IridescenceThicknessRemap.y * SAMPLE_TEXTURE2D(_IridescenceThicknessMap, sampler_IridescenceThicknessMap, featureUV).r;
+            #endif
+        }
+#endif
         MobileBRDFData brdf = MobileInitializeBRDF(color.rgb, metallic, smoothness, preserveSpecular ? color.a : 1.0h);
-        half3 reflected = reflect(-v, n);
-        float mip = PerceptualRoughnessToMipmapLevel(brdf.perceptualRoughness);
-        float3 direction0 = MobileBoxDirection(reflected, input.positionWS, unity_SpecCube0_ProbePosition, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
-        half4 env = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube0, samplerunity_SpecCube0, direction0, mip);
-        float3 indirectSpecular = DecodeHDREnvironment(env, unity_SpecCube0_HDR);
-        float blend = unity_SpecCube1_HDR.x > 0 ? saturate(unity_SpecCube0_BoxMin.w) : 1;
-        if (_MobileEnvironmentParams.x < 0.5 && blend < 0.99999)
+        float3 shadingNormal = n;
+#if defined(MOBILE_EXTENDED_LIT)
+        brdf.specular = extended.fresnel0;
+        if (_MaterialID == 0 || _MaterialID == 4 || _MaterialID == 5) brdf.diffuse = color.rgb;
+        brdf.grazingTerm = saturate(smoothness + Max3(brdf.specular.r, brdf.specular.g, brdf.specular.b));
+        if (_MaterialID == 3) brdf.specular = lerp(brdf.specular, EvalIridescence(1, saturate(dot(n, v)), extended.features.y, extended.fresnel0), extended.features.x);
+        if (_MaterialID == 2)
         {
-            float3 direction1 = MobileBoxDirection(reflected, input.positionWS, unity_SpecCube1_ProbePosition, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
-            half4 env1 = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube1, samplerunity_SpecCube0, direction1, mip);
-            indirectSpecular = lerp(DecodeHDREnvironment(env1, unity_SpecCube1_HDR), indirectSpecular, blend);
+            float3 grain = extended.anisotropy >= 0 ? cross(n, extended.tangent) : extended.tangent;
+            float3 grainNormal = SafeNormalize(cross(cross(-v, grain), grain));
+            n = SafeNormalize(lerp(n, grainNormal, abs(extended.anisotropy) * saturate(1.5 * sqrt(brdf.perceptualRoughness))));
         }
-        if (_MobileEnvironmentParams.x > 0)
-        {
-            float w0 = MobileEnvironmentProbeWeight(input.positionWS, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
-            float w1 = MobileEnvironmentProbeWeight(input.positionWS, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
-            // Native metadata stores the relative importance sign in BoxMin1.w.
-            if (unity_SpecCube1_BoxMin.w > 0) w1 *= 1 - w0;
-            else if (unity_SpecCube1_BoxMin.w < 0) w0 *= 1 - w1;
-            float sum = w0 + w1, normalization = max(sum, 1);
-            float3 local0 = DecodeHDREnvironment(env, unity_SpecCube0_HDR);
-            float3 direction1 = MobileBoxDirection(reflected, input.positionWS, unity_SpecCube1_ProbePosition, unity_SpecCube1_BoxMin, unity_SpecCube1_BoxMax);
-            float3 local1 = DecodeHDREnvironment(SAMPLE_TEXTURECUBE_LOD(unity_SpecCube1, samplerunity_SpecCube0, direction1, mip), unity_SpecCube1_HDR);
-            float3 sky = SAMPLE_TEXTURECUBE_LOD(_MobileEnvironmentReflection, sampler_MobileEnvironmentReflection, reflected,
-                brdf.perceptualRoughness * _MobileEnvironmentParams.z).rgb * _MobileEnvironmentParams.w;
-            indirectSpecular = (local0 * w0 + local1 * w1) / normalization * _MobileIndirectMultiplier.z + sky * (1 - saturate(sum));
-        }
-        else indirectSpecular *= _MobileIndirectMultiplier.z;
+#endif
+        float3 indirectSpecular = MobileSampleReflection(input.positionWS, reflect(-v, n), brdf.perceptualRoughness);
         float3 result = MobileEnvironmentBRDF(brdf, MobileBaked(input.lightmapUV, n) * _MobileIndirectMultiplier.x, indirectSpecular * _MobileIndirectMultiplier.y, dot(n, v), ao);
-        result += MobileDirectBRDF(brdf, n, v, _MobileMainDirection.xyz) * _MobileMainColor.rgb * MobileShadow(input.positionWS);
+#if defined(MOBILE_EXTENDED_LIT)
+        float3 diffuseIBL = MobileBaked(input.lightmapUV, n) * _MobileIndirectMultiplier.x * ao * brdf.diffuse;
+#endif
+        n = shadingNormal;
+#if defined(MOBILE_EXTENDED_LIT)
+        float3 sssDiffuse = 0;
+        if (_MaterialID == 0)
+        {
+            float3 irradiance = MobileBaked(input.lightmapUV, n) * _MobileIndirectMultiplier.x * ao;
+            sssDiffuse = irradiance * MobileSSSPreColor(color.rgb, (uint)extended.features.z);
+            #if defined(MOBILE_EXTENDED_GBUFFER)
+                result -= irradiance * brdf.diffuse;
+                diffuseIBL = 0;
+            #endif
+        }
+        if (extended.coat > 0)
+        {
+            float coatFresnel = F_Schlick(0.04, saturate(dot(n, v))) * extended.coat;
+            float3 coatReflection = MobileSampleReflection(input.positionWS, reflect(-v, n), 0.1);
+            result = diffuseIBL * (1 - coatFresnel) + (result - diffuseIBL) * Sq(1 - coatFresnel)
+                + coatReflection * _MobileIndirectMultiplier.y * (coatFresnel * ao / 1.0001);
+            sssDiffuse *= 1 - coatFresnel;
+        }
+#endif
+        #if !defined(MOBILE_GBUFFER)
+#if defined(MOBILE_EXTENDED_LIT)
+        float3 directDiffuse, directSpecular;
+        MobileEvaluateExtendedDirect(brdf, extended, (int)_MaterialID, n, v, _MobileMainDirection.xyz, _MobileSpecularHighlights, directDiffuse, directSpecular,
+            input.positionWS, true, _MobileReceiveShadows > 0);
+        result += (directDiffuse + directSpecular) * _MobileMainColor.rgb * MobileExtendedMainShadow(extended, (int)_MaterialID, n, input.positionWS, _MobileReceiveShadows > 0);
+#else
+        result += MobileDirectBRDF(brdf, n, v, _MobileMainDirection.xyz, _MobileSpecularHighlights)
+            * _MobileMainColor.rgb * (_MobileReceiveShadows > 0 ? MobileShadow(input.positionWS) : 1);
+#endif
         uint count = min((uint)unity_LightData.y, (uint)_MobileLightsPerObject);
         for (uint i = 0; i < count; i++)
         {
@@ -239,9 +380,17 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
             half3 l = delta * rsqrt(distanceSquared);
             float rangeFade = saturate(1 - pow(distanceSquared * _MobileLightPositions[index].w, 2));
             float spot = saturate(dot(l, _MobileLightSpots[index].xyz) * _MobileLightAttenuations[index].x + _MobileLightAttenuations[index].y);
-            result += MobileDirectBRDF(brdf, n, v, l) * _MobileLightColors[index].rgb
-                * (rangeFade * rangeFade * spot * spot / distanceSquared);
+#if defined(MOBILE_EXTENDED_LIT)
+            MobileEvaluateExtendedDirect(brdf, extended, (int)_MaterialID, n, v, l, _MobileSpecularHighlights, directDiffuse, directSpecular,
+                input.positionWS, false, _MobileReceiveShadows > 0);
+            result += (directDiffuse + directSpecular) * _MobileLightColors[index].rgb
+#else
+            result += MobileDirectBRDF(brdf, n, v, l, _MobileSpecularHighlights) * _MobileLightColors[index].rgb
+#endif
+                * (rangeFade * rangeFade * spot * spot / distanceSquared)
+                * (_MobileReceiveShadows > 0 ? MobileLocalShadow(input.positionWS, index) : 1);
         }
+        #endif
         result *= MobileCurrentExposure();
     #else
         // HDRP Unlit base color is display-referred; only emission has an
@@ -249,6 +398,15 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
         float3 result = color.rgb * _MobileDeExposure;
     #endif
     result += emission * lerp(1.0, MobileCurrentExposure(), _EmissiveExposureWeight);
+#if defined(MOBILE_EXTENDED_GBUFFER)
+    MobileExtendedGBufferOutput output;
+    MobileGBufferOutput compact = MobileEncodeGBuffer(color.rgb, metallic, n, smoothness, ao, result);
+    output.baseMetal = compact.baseMetal; output.normalSmoothAO = compact.normalSmoothAO; output.lighting = compact.lighting;
+    output.fresnelCoat = float4(extended.fresnel0, extended.coat);
+    return output;
+#elif defined(MOBILE_GBUFFER)
+    return MobileEncodeGBuffer(color.rgb, metallic, n, smoothness, ao, result);
+#else
     float fog = _MobileFog.x * saturate((distance(input.positionWS, _MobileCameraPosition.xyz) - _MobileFog.y) * _MobileFog.z);
     #if defined(_SURFACE_TYPE_TRANSPARENT)
         result = lerp(result, _MobileFogColor.rgb * MobileCurrentExposure(), fog);
@@ -260,6 +418,7 @@ half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_FACE_SE
     // Physical intensities can exceed the storage range at specular peaks. Accumulate
     // in float and bound the final value before writing the fixed RGBA16F target.
     return half4(clamp(result, 0, 65504), color.a);
+#endif
 #endif
 }
 #endif

@@ -11,12 +11,14 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
     public class MobileRenderTests
     {
         RenderPipelineAsset m_PreviousGraphics, m_PreviousQuality;
+        uint m_PreviousRenderingLayerMask;
         readonly Dictionary<string, byte[]> m_AssetSnapshots = new Dictionary<string, byte[]>();
         string m_ScenePath;
 
         [SetUp]
         public void SuspendProjectPipeline()
         {
+            m_PreviousRenderingLayerMask = GraphicsSettings.defaultRenderingLayerMask;
             m_AssetSnapshots.Clear();
             foreach (var guid in AssetDatabase.FindAssets("t:VolumeProfile", new[] { "Assets" }))
             {
@@ -30,6 +32,10 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             QualitySettings.renderPipeline = null;
             typeof(RenderPipelineManager).GetMethod("PrepareRenderPipeline", BindingFlags.Static | BindingFlags.NonPublic)
                 .Invoke(null, new object[] { null });
+            // An unsupported Desktop pipeline can dispose before saving its default
+            // layer mask. Keep newly created test renderers visible independently
+            // of the project's current pipeline and restore the original afterwards.
+            GraphicsSettings.defaultRenderingLayerMask = ShaderVariablesGlobal.DefaultRenderingLayerMask;
         }
 
         [TearDown]
@@ -37,6 +43,7 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         {
             GraphicsSettings.renderPipelineAsset = m_PreviousGraphics;
             QualitySettings.renderPipeline = m_PreviousQuality;
+            GraphicsSettings.defaultRenderingLayerMask = m_PreviousRenderingLayerMask;
             foreach (var snapshot in m_AssetSnapshots)
                 CollectionAssert.AreEqual(snapshot.Value, System.IO.File.ReadAllBytes(snapshot.Key), "Test changed project Profile: " + snapshot.Key);
             Assert.AreEqual(m_ScenePath, UnityEngine.SceneManagement.SceneManager.GetActiveScene().path, "Test did not restore the active scene.");
@@ -46,7 +53,6 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         public void BakedHDRPProbeBindsNativeCubeAndRestoresItOnDispose()
         {
             var asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
-            MobileRenderEditor.AssignResources(asset);
             var obj = new GameObject("Baked probe test");
             var native = obj.AddComponent<ReflectionProbe>();
             var hd = obj.AddComponent<HDAdditionalReflectionData>();
@@ -101,7 +107,6 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         {
             var asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
             asset.rendererMode = HDRendererMode.Mobile;
-            MobileRenderEditor.AssignResources(asset);
             var pipeline = new HDRenderPipeline(asset);
             try
             {
@@ -121,7 +126,6 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         public void DisposingPreviousMobileBackendDoesNotResetReplacement()
         {
             var asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
-            MobileRenderEditor.AssignResources(asset);
             string tag = Shader.globalRenderPipeline;
             bool keyword = Shader.IsKeywordEnabled("HDRP_MOBILE_RENDERER");
             MobileRenderPipelineBackend first = null, second = null;
@@ -161,13 +165,16 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             finally { Object.DestroyImmediate(asset); }
         }
 
-        [TestCase(GraphicsDeviceType.Vulkan, false, true)]
-        [TestCase(GraphicsDeviceType.Direct3D11, true, true)]
-        [TestCase(GraphicsDeviceType.Direct3D11, false, false)]
-        [TestCase(GraphicsDeviceType.OpenGLES3, false, false)]
-        [TestCase(GraphicsDeviceType.Metal, false, false)]
-        public void PlatformGateDoesNotEnableOtherPlayers(GraphicsDeviceType api, bool editor, bool supported)
-            => Assert.AreEqual(supported, MobileRenderCapabilities.IsDeviceSupported(api, editor));
+        [TestCase(GraphicsDeviceType.Vulkan, RuntimePlatform.Android, false, true)]
+        [TestCase(GraphicsDeviceType.Direct3D11, RuntimePlatform.WindowsEditor, true, true)]
+        [TestCase(GraphicsDeviceType.Direct3D12, RuntimePlatform.WindowsEditor, true, true)]
+        [TestCase(GraphicsDeviceType.Direct3D11, RuntimePlatform.WindowsPlayer, false, true)]
+        [TestCase(GraphicsDeviceType.Direct3D12, RuntimePlatform.WindowsPlayer, false, true)]
+        [TestCase(GraphicsDeviceType.Direct3D11, RuntimePlatform.Android, false, false)]
+        [TestCase(GraphicsDeviceType.OpenGLES3, RuntimePlatform.Android, false, false)]
+        [TestCase(GraphicsDeviceType.Metal, RuntimePlatform.OSXPlayer, false, false)]
+        public void PlatformGateDoesNotEnableOtherPlayers(GraphicsDeviceType api, RuntimePlatform platform, bool editor, bool supported)
+            => Assert.AreEqual(supported, MobileRenderCapabilities.IsDeviceSupported(api, platform, editor));
 
         [Test]
         public void AuditReportsUnsupportedMaterialsWithoutChangingThem()
@@ -188,7 +195,6 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         public void BackendDisposeIsIdempotentAndRestoresGlobalState()
         {
             var asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
-            MobileRenderEditor.AssignResources(asset);
             bool batcher = GraphicsSettings.useScriptableRenderPipelineBatching;
             bool keyword = Shader.IsKeywordEnabled("HDRP_MOBILE_RENDERER");
             var features = SupportedRenderingFeatures.active;

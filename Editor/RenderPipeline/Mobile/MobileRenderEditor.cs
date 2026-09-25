@@ -15,7 +15,6 @@ namespace UnityEditor.Rendering.HighDefinition
 
     internal static class MobileRenderEditor
     {
-        const string Root = "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/";
 
         enum Expandable
         {
@@ -40,9 +39,7 @@ namespace UnityEditor.Rendering.HighDefinition
                     CED.FoldoutGroup(Styles.directionalLightshadowSubTitle, Expandable.DirectionalShadows, k_ExpandedState, SubFoldout, DrawShadows)),
                 CED.FoldoutGroup(Styles.lightLoopSubTitle, Expandable.Lights, k_ExpandedState, SubFoldout, DrawLights)),
             CED.FoldoutGroup(Styles.postProcessSectionTitle, Expandable.PostProcessing, k_ExpandedState,
-                CED.Group(DrawPostProcessing),
                 CED.FoldoutGroup("Exposure", Expandable.Exposure, k_ExpandedState, SubFoldout, DrawExposure)),
-            CED.FoldoutGroup("Resources", Expandable.Resources, k_ExpandedState, DrawResources),
             CED.FoldoutGroup("Diagnostics", Expandable.Diagnostics, k_ExpandedState, DrawDiagnostics));
 
         static SerializedProperty Setting(SerializedObject serialized, string name)
@@ -58,15 +55,6 @@ namespace UnityEditor.Rendering.HighDefinition
             return !property.hasMultipleDifferentValues && !property.boolValue;
         }
 
-        internal static void AssignResources(HDRenderPipelineAsset asset)
-        {
-            Undo.RecordObject(asset, "Assign HDRP Mobile resources");
-            asset.mobileResources.compositeShader = AssetDatabase.LoadAssetAtPath<Shader>(Root + "MobileComposite.shader");
-            asset.mobileResources.skyShader = AssetDatabase.LoadAssetAtPath<Shader>(Root + "MobileSky.shader");
-            asset.mobileResources.errorShader = AssetDatabase.LoadAssetAtPath<Shader>(Root + "MobileError.shader");
-            EditorUtility.SetDirty(asset);
-        }
-
         internal static bool DrawInspector(SerializedObject serialized)
         {
             var mode = serialized.FindProperty("m_RendererMode");
@@ -77,15 +65,19 @@ namespace UnityEditor.Rendering.HighDefinition
                 return true;
             }
             if (mode.enumValueIndex != (int)HDRendererMode.Mobile) return false;
-            EditorGUILayout.HelpBox("Android Vulkan forward renderer. Exposure Control follows HDRP Frame Settings. Supported Volume overrides control exposure and post-processing; configure Mobile features below.", MessageType.Info);
-            if (serialized.targetObjects.Cast<HDRenderPipelineAsset>().Any(asset => !asset.mobileResources.isValid))
-                EditorGUILayout.HelpBox("Mobile shader resources are missing. Expand Resources and use Assign Mobile Resources.", MessageType.Warning);
+            EditorGUILayout.HelpBox("Android Vulkan / Windows D3D11/D3D12 renderer. Deferred uses three color targets plus at most one RGBA8 Fresnel/Coat target; other Lit types use Forward. Exposure Control follows HDRP Frame Settings.", MessageType.Info);
+            if (serialized.targetObjects.Cast<HDRenderPipelineAsset>().Any(asset => !asset.mobileResources.isValid || asset.mobileResources.deferredShader == null))
+                EditorGUILayout.HelpBox("HDRP built-in Mobile shaders are unavailable. Check the HDRP package and Global Settings runtime resources.", MessageType.Error);
             k_Inspector.Draw(serialized, null);
             return true;
         }
 
         static void DrawResolution(SerializedObject serialized, Editor owner)
         {
+            Field(serialized, "renderingPath", "Rendering Path", "Forward or compact deferred opaque lighting. Transparent surfaces remain Forward.");
+            Field(serialized, "extendedLitMaterials", "Deferred Fresnel / Coat RT", "Allow one extra RGBA8 target for SpecularColor and clear coat. SSS, Anisotropy, Iridescence and Translucent use Forward, without screen-space SSS. Disabling this also routes SpecularColor and coated Standard to Forward.");
+            if (Setting(serialized, "renderingPath").enumValueIndex == (int)MobileRenderingPath.Deferred)
+                Field(serialized, "deferredExecution", "Deferred Execution", "Auto uses stored GBuffer textures on desktop and native subpasses on Android Vulkan. D3D11/D3D12 require Auto or Sampled. Forced Native is reserved for Vulkan validation.");
             Field(serialized, "fixed1080p", "Fixed 1080p Resolution", "Use a 1920 x 1080 base resolution for Game cameras targeting the display. Preview cameras and RenderTextures retain their dimensions. Render Scale applies in both modes.");
             Field(serialized, "renderScale", "Render Scale", "Scale the base width and height before upscaling. This is a fixed scale, not Desktop dynamic resolution.");
         }
@@ -97,15 +89,20 @@ namespace UnityEditor.Rendering.HighDefinition
 
         static void DrawShadows(SerializedObject serialized, Editor owner)
         {
-            Field(serialized, "mainLightShadows", "Main Light Shadows", "Enable realtime shadows for the main directional light. Mobile uses two cascades and does not support local realtime shadows.");
+            EditorGUILayout.HelpBox("Lighting / Mobile Shadows Volumes override these defaults per camera.", MessageType.Info);
+            Field(serialized, "mainLightShadows", "Main Light Shadows", "Enable realtime CSM for the main directional light, with up to six cascades.");
             using (new EditorGUI.DisabledScope(Disabled(serialized, "mainLightShadows")))
             {
-                Field(serialized, "shadowAtlasSize", "Shadow Atlas Resolution", "Atlas size in pixels. Rounded up to a power of two and clamped to 256-2048 at runtime; each cascade uses half the atlas width.");
-                Field(serialized, "shadowDistance", "Maximum Shadow Distance", "Maximum distance in world units over which directional shadows are rendered.");
-                Field(serialized, "cascadeSplit", "Cascade Split", "First cascade split as a fraction of the shadow distance. Mobile always uses two cascades.");
-                Field(serialized, "cascadeBlend", "Cascade Blend", "Fraction of the first cascade radius used to blend into the second cascade. Zero disables blending.");
+                Field(serialized, "shadowAtlasSize", "CSM Atlas Resolution", "Total atlas size: 256-4096, rounded up to a power of two. Five or six cascades occupy a 3x3 tile grid.");
+                Field(serialized, "cascadeCount", "Cascade Count", "One to six cascades.");
+                Field(serialized, "cascadeSplit", "First Cascade Split", "First split / shadow distance. Remaining splits divide the remaining distance evenly.");
+                Field(serialized, "cascadeBlend", "Cascade Blend", "Fraction of each cascade radius blended into the next cascade. Zero disables blending.");
                 Field(serialized, "shadowNormalBias", "Normal Bias (Texels)", "Inset shadow casters along the negative surface normal to reduce self-shadowing. Measured in shadow-map texels and converted per cascade; reduced on surfaces facing the light.");
             }
+            Field(serialized, "localLightShadows", "Local Light Shadows", "Render Point (six faces) and Spot (one face) shadows into a shared local atlas. Each light controls its shadow strength and bias.");
+            Field(serialized, "localShadowAtlasSize", "Local Shadow Atlas Resolution", "Total local atlas size: 256-4096, rounded up to a power of two. Tiles resize to fit the visible shadowed lights.");
+            Field(serialized, "shadowDistance", "Maximum Shadow Distance", "Maximum shadow distance for directional and local lights.");
+            Field(serialized, "shadowFilterSize", "PCF Filter Size", "Kernel width from 1x1 to 4x4 for directional and local shadows.");
         }
 
         static void DrawSky(SerializedObject serialized, Editor owner)
@@ -140,30 +137,10 @@ namespace UnityEditor.Rendering.HighDefinition
             }
         }
 
-        static void DrawPostProcessing(SerializedObject serialized, Editor owner)
-        {
-            Field(serialized, "fxaa", "FXAA", "Enable fast approximate anti-aliasing in the Mobile composite pass.");
-            Field(serialized, "bloom", "Bloom", "Enable Mobile bloom. Configure intensity in the Bloom Volume override; Mobile uses a simplified downsample filter.");
-        }
-
         static void DrawExposure(SerializedObject serialized, Editor owner)
         {
             EditorGUILayout.HelpBox("Enable Exposure Control in HDRP Frame Settings. Configure exposure mode and adaptation in the Exposure Volume override. Mobile uses geometric-mean metering for automatic exposure.", MessageType.Info);
             Field(serialized, "meteringResolution", "Metering Resolution", "Automatic exposure meter resolution: Low = 64, Medium = 128, High = 256 pixels per side.");
-        }
-
-        static void DrawResources(SerializedObject serialized, Editor owner)
-        {
-            var resources = serialized.FindProperty("m_MobileResources");
-            EditorGUILayout.PropertyField(resources.FindPropertyRelative("compositeShader"));
-            EditorGUILayout.PropertyField(resources.FindPropertyRelative("skyShader"));
-            EditorGUILayout.PropertyField(resources.FindPropertyRelative("errorShader"));
-            if (GUILayout.Button("Assign Mobile Resources"))
-            {
-                serialized.ApplyModifiedProperties();
-                foreach (HDRenderPipelineAsset asset in serialized.targetObjects) AssignResources(asset);
-                serialized.Update();
-            }
         }
 
         static void DrawDiagnostics(SerializedObject serialized, Editor owner)
@@ -178,7 +155,6 @@ namespace UnityEditor.Rendering.HighDefinition
         {
             var asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
             asset.rendererMode = HDRendererMode.Mobile;
-            AssignResources(asset);
             ProjectWindowUtil.CreateAsset(asset, "HDRP Mobile.asset");
         }
 
@@ -193,7 +169,7 @@ namespace UnityEditor.Rendering.HighDefinition
                 else Debug.LogWarning(issue.message, issue.context);
         }
 
-        internal static void AuditMaterial(Material material, string location, List<string> issues)
+        internal static void AuditMaterial(Material material, string location, List<string> issues, bool? extendedLit = null)
         {
             if (material == null) { issues.Add(location + ": missing material."); return; }
             string name = material.shader != null ? material.shader.name : "<missing shader>";
@@ -209,12 +185,10 @@ namespace UnityEditor.Rendering.HighDefinition
             }
             if (name == "HDRP/Lit")
             {
-                Unsupported("_MaterialID", 1, "only Standard Lit is supported");
                 Unsupported("_UVBase", 0, "only UV0 base mapping is supported");
                 Unsupported("_NormalMapSpace", 0, "object-space normal maps are unsupported");
                 Unsupported("_DisplacementMode", 0, "displacement is unsupported");
                 Unsupported("_RefractionModel", 0, "refraction is unsupported");
-                Unsupported("_CoatMask", 0, "clear coat is unsupported");
                 if (material.IsKeywordEnabled("_DETAIL_MAP") && material.GetFloat("_UVDetail") > 1) issues.Add(location + ": " + material.name + " supports Detail UV0/UV1 only.");
             }
             Unsupported("_UVEmissive", 0, "only UV0 emission mapping is supported");
@@ -224,12 +198,19 @@ namespace UnityEditor.Rendering.HighDefinition
         internal static void DrawMaterialSupport(MaterialEditor editor)
         {
             if (!(GraphicsSettings.currentRenderPipeline is HDRenderPipelineAsset asset) || asset.rendererMode != HDRendererMode.Mobile) return;
+            var properties = MaterialEditor.GetMaterialProperties(editor.targets);
+            EditorGUI.BeginChangeCheck();
+            foreach (var property in properties)
+                if (property.name == "_MobileReceiveShadows" || property.name == "_MobileSpecularHighlights" || property.name == "_MobileUserStencilBit")
+                    editor.ShaderProperty(property, property.displayName);
+            if (EditorGUI.EndChangeCheck())
+                foreach (Material material in editor.targets) MobileDeferredMaterial.Validate(material);
             var issues = new List<string>();
             foreach (var target in editor.targets) AuditMaterial(target as Material, "Mobile", issues);
             EditorGUILayout.HelpBox(issues.Count == 0 ? "Mobile: Standard Lit/Unlit, base/emission UV0, Detail UV0/UV1. Premultiply expects premultiplied RGB. Desktop material settings are preserved." : string.Join("\n", issues), issues.Count == 0 ? MessageType.Info : MessageType.Warning);
         }
 
-        internal static void AuditScene(Scene scene, List<string> issues)
+        internal static void AuditScene(Scene scene, List<string> issues, bool? extendedLit = null)
         {
             if (!scene.IsValid() || !scene.isLoaded) return;
             foreach (var root in scene.GetRootGameObjects())
@@ -237,7 +218,7 @@ namespace UnityEditor.Rendering.HighDefinition
                 foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
                 {
                     string location = scene.path + "/" + AnimationUtility.CalculateTransformPath(renderer.transform, null);
-                    foreach (var material in renderer.sharedMaterials) AuditMaterial(material, location, issues);
+                    foreach (var material in renderer.sharedMaterials) AuditMaterial(material, location, issues, extendedLit);
                     if (renderer.lightProbeUsage == LightProbeUsage.UseProxyVolume)
                         issues.Add(location + ": Light Probe Proxy Volumes are unsupported.");
                 }
@@ -298,7 +279,7 @@ namespace UnityEditor.Rendering.HighDefinition
                         {
                             if (environment.cloudType.value != 0) issues.Add(scene.path + "/" + volume.name + ": Mobile sky fallback does not render clouds.");
                         }
-                        else if (!(component is ColorAdjustments) && !(component is Bloom) && !(component is MobilePostProcessing) && !(component is GradientSky))
+                        else if (!(component is ColorAdjustments) && !(component is Bloom) && !(component is MobilePostProcessing) && !(component is GradientSky) && !(component is DiffusionProfileList))
                             issues.Add(scene.path + "/" + volume.name + ": volume override " + component.GetType().Name + " is ignored by Mobile.");
                     }
                 }
@@ -319,12 +300,24 @@ namespace UnityEditor.Rendering.HighDefinition
             foreach (var asset in assets.Where(a => a.rendererMode == HDRendererMode.Mobile))
             {
                 if (!asset.mobileResources.isValid) throw new BuildFailedException(asset.name + ": Mobile shader resources are missing.");
+                if (asset.mobileSettings.renderingPath == MobileRenderingPath.Deferred && asset.mobileResources.deferredShader == null)
+                    throw new BuildFailedException(asset.name + ": HDRP built-in Mobile Deferred shader is missing.");
                 if (QualitySettings.activeColorSpace != ColorSpace.Linear) throw new BuildFailedException("Mobile requires Linear color space.");
-                if (target != BuildTarget.Android) throw new BuildFailedException("Mobile player builds support Android only; desktop preview is Editor-only.");
+                bool windows = target == BuildTarget.StandaloneWindows || target == BuildTarget.StandaloneWindows64;
+                if (target != BuildTarget.Android && !windows) throw new BuildFailedException("Mobile backend players support Android Vulkan and Windows D3D11/D3D12.");
                 var apis = PlayerSettings.GetGraphicsAPIs(target);
-                if (PlayerSettings.GetUseDefaultGraphicsAPIs(target) || apis.Length != 1 || apis[0] != GraphicsDeviceType.Vulkan)
+                if (windows)
+                {
+                    if (PlayerSettings.GetUseDefaultGraphicsAPIs(target) || apis.Length == 0
+                        || apis.Any(api => api != GraphicsDeviceType.Direct3D11 && api != GraphicsDeviceType.Direct3D12))
+                        throw new BuildFailedException("Mobile Windows builds require explicit D3D11/D3D12 Graphics APIs (disable Auto Graphics API).");
+                    if (asset.mobileSettings.renderingPath == MobileRenderingPath.Deferred
+                        && asset.mobileSettings.deferredExecution == MobileDeferredExecution.NativeRenderPass)
+                        throw new BuildFailedException("Mobile Windows Deferred uses stored textures. Select Auto or Sampled, not NativeRenderPass.");
+                }
+                else if (PlayerSettings.GetUseDefaultGraphicsAPIs(target) || apis.Length != 1 || apis[0] != GraphicsDeviceType.Vulkan)
                     throw new BuildFailedException("Mobile requires explicit Vulkan-only Android Graphics APIs (disable Auto Graphics API).");
-                if (!HasHDRLightmaps())
+                if (target == BuildTarget.Android && !HasHDRLightmaps())
                     throw new BuildFailedException("Mobile requires Android Lightmap Encoding = High Quality (Player settings) to preserve HDRP physical light intensities.");
             }
             return assets.All(a => a.rendererMode == HDRendererMode.Mobile);
@@ -348,7 +341,8 @@ namespace UnityEditor.Rendering.HighDefinition
         {
             if (report == null || !ShaderBuildPreprocessor.hdrpAssets.Any(a => a.rendererMode == HDRendererMode.Mobile)) return;
             var issues = new List<string>();
-            MobileRenderEditor.AuditScene(scene, issues);
+            MobileRenderEditor.AuditScene(scene, issues, ShaderBuildPreprocessor.hdrpAssets
+                .Where(a => a.rendererMode == HDRendererMode.Mobile).All(a => a.mobileSettings.extendedLitMaterials));
             if (issues.Count != 0) Debug.LogWarning("HDRP Mobile build content audit:\n" + string.Join("\n", issues));
         }
     }

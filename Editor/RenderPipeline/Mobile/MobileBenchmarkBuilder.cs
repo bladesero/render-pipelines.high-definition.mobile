@@ -25,7 +25,6 @@ namespace UnityEditor.Rendering.HighDefinition
             var asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
             asset.rendererMode = HDRendererMode.Mobile;
             asset.mobileSettings.drawUnsupportedMaterials = false;
-            MobileRenderEditor.AssignResources(asset);
             AssetDatabase.CreateAsset(asset, folder + "/Mobile.asset");
 
             Material MakeMaterial(string name, Color color, bool transparent = false, bool cutout = false)

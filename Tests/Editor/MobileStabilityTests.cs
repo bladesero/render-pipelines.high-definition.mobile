@@ -37,7 +37,6 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         public void FailedReplacementConstructionReleasesPartialResources(string checkpoint)
         {
             var asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
-            MobileRenderEditor.AssignResources(asset);
             var owner = new MobileRenderPipelineBackend(asset);
             try
             {
@@ -57,7 +56,6 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         public void FiftyReplacementsAndSceneUnloadsReleaseOwnedResources()
         {
             var asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
-            MobileRenderEditor.AssignResources(asset);
             // Warm VolumeManager's shared default state before measuring owned objects.
             new MobileRenderPipelineBackend(asset).Dispose();
             int materials = MaterialCount(), components = StackComponentCount(), graphs = RenderGraph.GetRegisteredRenderGraphs().Count;
@@ -105,7 +103,6 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         public void RenderingCallbacksCloseWhenBeginCallbackThrows(bool cameraCallback)
         {
             var asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>(); asset.rendererMode = HDRendererMode.Mobile;
-            MobileRenderEditor.AssignResources(asset);
             var pipeline = new HDRenderPipeline(asset);
             var obj = new GameObject("Callback camera"); var camera = obj.AddComponent<Camera>();
             int endedCamera = 0, endedContext = 0;

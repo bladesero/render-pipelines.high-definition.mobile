@@ -8,6 +8,8 @@ TEXTURE2D(_EmissiveColorMap);
 SAMPLER(sampler_EmissiveColorMap);
 
 CBUFFER_START(UnityPerMaterial)
+float _MobileReceiveShadows, _MobileSpecularHighlights, _MobileUserStencilBit;
+int _MobileStencilRef;
 
 float4  _UnlitColor;
 float4 _UnlitColorMap_ST;

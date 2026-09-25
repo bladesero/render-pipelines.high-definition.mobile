@@ -46,7 +46,7 @@ namespace UnityEngine.Rendering.HighDefinition
                         bool supported = false;
                         if (material != null && !m_Supported.TryGetValue(material, out supported))
                         {
-                            supported = material.FindPass("MobileForward") >= 0;
+                            supported = MobileDeferredMaterial.IsSupported(material);
                             m_Supported.Add(material, supported);
                         }
                         if (!supported) m_Entries.Add(new Entry { renderer = renderer, submesh = i, queue = material != null ? material.renderQueue : 2000 });

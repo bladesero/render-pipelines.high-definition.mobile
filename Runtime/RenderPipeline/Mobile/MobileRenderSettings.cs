@@ -6,6 +6,11 @@ namespace UnityEngine.Rendering.HighDefinition
     /// <summary>Selects the independently initialized HDRP renderer.</summary>
     public enum HDRendererMode { Desktop = 0, Mobile = 1 }
 
+    /// <summary>Opaque lighting path. Existing assets retain Forward.</summary>
+    public enum MobileRenderingPath { Forward = 0, Deferred = 1 }
+    /// <summary>Compact deferred attachment execution.</summary>
+    public enum MobileDeferredExecution { Auto = 0, NativeRenderPass = 1, Sampled = 2 }
+
     /// <summary>Resolution of the raster exposure meter.</summary>
     public enum MobileMeteringResolution { Low = 64, Medium = 128, High = 256 }
     /// <summary>Face resolution of the raster environment reflection cache.</summary>
@@ -13,25 +18,31 @@ namespace UnityEngine.Rendering.HighDefinition
     /// <summary>Diffuse source for objects without a lightmap.</summary>
     public enum MobileEnvironmentDiffuseSource { PreferBakedProbes = 0, RuntimeSky = 1 }
 
-    /// <summary>Settings for the experimental Android Vulkan forward renderer.</summary>
+    /// <summary>Settings for the experimental Mobile backend on Android Vulkan and Windows DirectX.</summary>
     [Serializable]
     public sealed class MobileRenderSettings
     {
+        public MobileRenderingPath renderingPath = MobileRenderingPath.Forward;
+        public MobileDeferredExecution deferredExecution = MobileDeferredExecution.Auto;
+        [Tooltip("Allow one extra RGBA8 Fresnel/Coat attachment for deferred SpecularColor and clear coat. Other Lit types use Forward, without screen-space SSS.")]
+        public bool extendedLitMaterials;
         [Tooltip("Render Game cameras targeting the display at 1920x1080 before upscaling. Preview cameras and explicit RenderTextures retain their own dimensions.")]
         public bool fixed1080p = true;
         [Range(0.5f, 1f)] public float renderScale = 1f;
         [Range(0, 4)] public int additionalLightsPerObject = 4;
         public bool mainLightShadows = true;
-        [Range(256, 2048)] public int shadowAtlasSize = 1024;
+        [Range(256, 4096)] public int shadowAtlasSize = 4096;
+        [Range(1, 6)] public int cascadeCount = 6;
+        public bool localLightShadows = true;
+        [Range(256, 4096)] public int localShadowAtlasSize = 4096;
+        [Range(1, 4)] public int shadowFilterSize = 4;
         [Min(0.1f)] public float shadowDistance = 30f;
-        [Range(0.05f, 0.95f)] public float cascadeSplit = 0.35f;
-        [Tooltip("Fraction of the first cascade radius used to blend into the second cascade. Zero disables blending.")]
+        [Range(0.01f, 0.95f)] public float cascadeSplit = 0.1f;
+        [Tooltip("Fraction of each cascade radius used to blend into the next cascade. Zero disables blending.")]
         [Range(0f, 0.3f)] public float cascadeBlend = 0.1f;
         [Tooltip("Inset shadow casters along the negative surface normal, in shadow-map texels. Converted to world units separately for each cascade and reduced on surfaces facing the light.")]
         [Min(0f)] public float shadowNormalBias = 0.02f;
-        public bool fxaa = true;
         public MobileMeteringResolution meteringResolution = MobileMeteringResolution.Medium;
-        public bool bloom = false;
         [Tooltip("Draw magenta for shaders without MobileForward. This diagnostic scans loaded renderers once per frame; disable after content validation for production profiling.")]
         public bool drawUnsupportedMaterials = true;
         public Cubemap sky;
@@ -59,28 +70,39 @@ namespace UnityEngine.Rendering.HighDefinition
         }
     }
 
-    /// <summary>Only raster shaders are referenced by mobile assets.</summary>
-    [Serializable]
+    /// <summary>Built-in raster shaders, owned by HDRP runtime resources.</summary>
+    [Serializable, ReloadGroup]
     public sealed class MobileRenderResources
     {
+        [Reload("Runtime/RenderPipeline/Mobile/Shaders/MobileComposite.shader")]
         public Shader compositeShader;
+        [Reload("Runtime/RenderPipeline/Mobile/Shaders/MobileSky.shader")]
         public Shader skyShader;
+        [Reload("Runtime/RenderPipeline/Mobile/Shaders/MobileError.shader")]
         public Shader errorShader;
+        [Reload("Runtime/RenderPipeline/Mobile/Shaders/MobileDeferred.shader")]
+        public Shader deferredShader;
 
         public bool isValid => compositeShader != null && skyShader != null && errorShader != null;
     }
 
     internal static class MobileRenderCapabilities
     {
-        internal static bool IsDeviceSupported(GraphicsDeviceType device, bool editor)
-            => device == GraphicsDeviceType.Vulkan || (editor && device == GraphicsDeviceType.Direct3D11);
+        internal static bool IsDeviceSupported(GraphicsDeviceType device, RuntimePlatform platform, bool editor)
+        {
+            bool directX = device == GraphicsDeviceType.Direct3D11 || device == GraphicsDeviceType.Direct3D12;
+            if (editor) return device == GraphicsDeviceType.Vulkan || (platform == RuntimePlatform.WindowsEditor && directX);
+            return (platform == RuntimePlatform.Android && device == GraphicsDeviceType.Vulkan)
+                || (platform == RuntimePlatform.WindowsPlayer && directX);
+        }
+
+        internal static bool PreferNativeDeferred(GraphicsDeviceType device, RuntimePlatform platform)
+            => device == GraphicsDeviceType.Vulkan && platform == RuntimePlatform.Android;
 
         internal static string Validate(HDRenderPipelineAsset asset)
         {
-            if (!IsDeviceSupported(SystemInfo.graphicsDeviceType, Application.isEditor))
-                return "HDRP Mobile requires Android Vulkan (D3D11/Vulkan for Windows Editor preview).";
-            if (!Application.isEditor && Application.platform != RuntimePlatform.Android)
-                return "HDRP Mobile player support is limited to Android.";
+            if (!IsDeviceSupported(SystemInfo.graphicsDeviceType, Application.platform, Application.isEditor))
+                return "HDRP Mobile requires Android Vulkan or Windows D3D11/D3D12 (Vulkan is also available for Editor validation).";
             if (QualitySettings.activeColorSpace != ColorSpace.Linear)
                 return "HDRP Mobile requires Linear color space.";
             if (!SystemInfo.IsFormatSupported(GraphicsFormat.R16G16B16A16_SFloat, FormatUsage.Render)
@@ -88,7 +110,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 || !SystemInfo.IsFormatSupported(GraphicsFormat.R16G16B16A16_SFloat, FormatUsage.Linear))
                 return "HDRP Mobile requires a renderable, filterable RGBA16F color target.";
             if (!asset.mobileResources.isValid)
-                return "HDRP Mobile shader references are missing. Use Assign Mobile Resources in the asset inspector.";
+                return "HDRP built-in Mobile shader resources are unavailable. Check the HDRP package and Global Settings runtime resources.";
             if (!SystemInfo.IsFormatSupported(GraphicsFormat.R32G32_SFloat, FormatUsage.Render)
                 || !SystemInfo.IsFormatSupported(GraphicsFormat.R32G32_SFloat, FormatUsage.Sample))
                 return "HDRP Mobile exposure requires a renderable and sampleable RG32F target.";

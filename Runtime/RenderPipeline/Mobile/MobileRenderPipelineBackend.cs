@@ -6,7 +6,7 @@ using UnityEngine.Experimental.Rendering.RenderGraphModule;
 namespace UnityEngine.Rendering.HighDefinition
 {
     // No HDCamera, desktop resources or compute light lists.
-    internal sealed class MobileRenderPipelineBackend : IDisposable
+    internal sealed partial class MobileRenderPipelineBackend : IDisposable
     {
         const int MaxVisibleLights = 32;
         const string MobileKeyword = "HDRP_MOBILE_RENDERER";
@@ -29,23 +29,27 @@ namespace UnityEngine.Rendering.HighDefinition
         readonly Vector4[] m_Colors = new Vector4[MaxVisibleLights];
         readonly Vector4[] m_Spots = new Vector4[MaxVisibleLights];
         readonly Vector4[] m_SpotAttenuations = new Vector4[MaxVisibleLights];
-        readonly Matrix4x4[] m_ShadowMatrices = new Matrix4x4[2];
-        readonly Vector4[] m_ShadowSpheres = new Vector4[2];
-        readonly Matrix4x4[] m_ShadowViews = new Matrix4x4[2];
-        readonly Matrix4x4[] m_ShadowProjections = new Matrix4x4[2];
-        readonly ShadowSplitData[] m_ShadowSplits = new ShadowSplitData[2];
-        readonly bool m_PreviousBatcher, m_PreviousLinear, m_PreviousTemperature, m_PreviousKeyword;
+        readonly Matrix4x4[] m_ShadowMatrices = new Matrix4x4[6];
+        readonly Vector4[] m_ShadowSpheres = new Vector4[6];
+        readonly Matrix4x4[] m_ShadowViews = new Matrix4x4[6];
+        readonly Matrix4x4[] m_ShadowProjections = new Matrix4x4[6];
+        readonly ShadowSplitData[] m_ShadowSplits = new ShadowSplitData[6];
+        readonly bool m_PreviousBatcher, m_PreviousLinear, m_PreviousTemperature, m_PreviousKeyword, m_PreviousExtendedKeyword;
         readonly SupportedRenderingFeatures m_PreviousFeatures;
         readonly string m_PreviousShaderTag;
         int m_MainLight = -1;
         Vector4 m_MainDirection, m_MainColor;
         bool m_Disposed;
+        // Time.frameCount does not advance reliably for edit-mode Scene View repaints.
+        // RenderGraph's pool needs an advancing index to retire old resize allocations.
+        int m_RenderGraphFrameIndex;
 
         internal bool CanUpdateInPlace(HDRenderPipelineAsset asset) => !m_Disposed && asset == m_Asset
             && asset.rendererMode == HDRendererMode.Mobile
             && m_Composite != null && m_Composite.shader == asset.mobileResources.compositeShader
             && m_Sky != null && m_Sky.shader == asset.mobileResources.skyShader
-            && m_Error != null && m_Error.shader == asset.mobileResources.errorShader;
+            && m_Error != null && m_Error.shader == asset.mobileResources.errorShader
+            && (m_DeferredMaterials == null || m_DeferredMaterials[0].shader == asset.mobileResources.deferredShader);
 
         internal MobileRenderPipelineBackend(HDRenderPipelineAsset asset, Action<string> initializationCheckpoint = null)
         {
@@ -58,6 +62,7 @@ namespace UnityEngine.Rendering.HighDefinition
             m_PreviousLinear = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousLinear : GraphicsSettings.lightsUseLinearIntensity;
             m_PreviousTemperature = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousTemperature : GraphicsSettings.lightsUseColorTemperature;
             m_PreviousKeyword = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousKeyword : Shader.IsKeywordEnabled(MobileKeyword);
+            m_PreviousExtendedKeyword = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousExtendedKeyword : Shader.IsKeywordEnabled("MOBILE_EXTENDED_LIT");
             m_PreviousFeatures = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousFeatures : SupportedRenderingFeatures.active;
             m_PreviousShaderTag = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousShaderTag : Shader.globalRenderPipeline;
             try
@@ -101,7 +106,14 @@ namespace UnityEngine.Rendering.HighDefinition
             catch { Dispose(); throw; }
         }
 
-        internal void EndFrame() { if (!m_Disposed) { m_ExposureHistory.Prune(); m_Environment.Prune(); m_Graph.EndFrame(); } }
+        internal void EndFrame()
+        {
+            if (m_Disposed) return;
+            m_ExposureHistory.Prune(); m_Environment.Prune();
+            m_Graph.EndFrame();
+            ++m_RenderGraphFrameIndex;
+            PruneDeferredDepths();
+        }
 
         internal void Render(ScriptableRenderContext context, Camera camera)
         {
@@ -113,8 +125,13 @@ namespace UnityEngine.Rendering.HighDefinition
             ReflectionProbe.UpdateCachedState();
             if (!camera.TryGetCullingParameters(out var parameters)) return;
             var settings = m_Asset.mobileSettings;
+            camera.TryGetComponent<HDAdditionalCameraData>(out var additional);
+            MobileExposure.GetVolumeContext(camera, m_Asset, out var anchor, out var mask);
+            if (m_DefaultVolume != null) m_DefaultVolume.sharedProfile = HDRenderPipelineGlobalSettings.instance?.volumeProfile;
+            VolumeManager.instance.Update(m_Volumes, anchor, mask);
+            ResolveShadowSettings(settings);
             if (settings.drawUnsupportedMaterials) m_ErrorRenderer.Prepare(camera);
-            parameters.shadowDistance = Mathf.Min(Mathf.Max(0.1f, settings.shadowDistance), camera.farClipPlane);
+            parameters.shadowDistance = Mathf.Min(m_ShadowSettings.shadowDistance, camera.farClipPlane);
             parameters.cullingOptions &= ~CullingOptions.Stereo;
             parameters.cullingOptions |= CullingOptions.NeedsReflectionProbes;
 #if UNITY_EDITOR
@@ -123,11 +140,8 @@ namespace UnityEngine.Rendering.HighDefinition
 #endif
             var culling = context.Cull(ref parameters);
             PrepareLights(ref culling);
-            bool shadows = PrepareShadows(ref culling, settings);
-            camera.TryGetComponent<HDAdditionalCameraData>(out var additional);
-            MobileExposure.GetVolumeContext(camera, m_Asset, out var anchor, out var mask);
-            if (m_DefaultVolume != null) m_DefaultVolume.sharedProfile = HDRenderPipelineGlobalSettings.instance?.volumeProfile;
-            VolumeManager.instance.Update(m_Volumes, anchor, mask);
+            bool shadows = PrepareShadows(ref culling, m_ShadowSettings);
+            PrepareLocalShadows(ref culling);
             FrameSettings frameSettings = new FrameSettings();
             FrameSettings.AggregateFrameSettings(ref frameSettings, camera, additional, m_Asset);
             float exposure = MobileExposure.Evaluate(m_Volumes.GetComponent<Exposure>(), camera, frameSettings.IsEnabled(FrameSettingsField.ExposureControl));
@@ -135,6 +149,9 @@ namespace UnityEngine.Rendering.HighDefinition
             var exposureState = m_ExposureHistory.Prepare(camera, exposureVolume, frameSettings.IsEnabled(FrameSettingsField.ExposureControl));
             Vector2Int renderSize = settings.GetRenderSize(camera);
             int width = renderSize.x, height = renderSize.y;
+            bool deferred = ResolveDeferred(context, camera, culling, out bool nativeDeferred);
+            var deferredDepth = deferred ? EnsureDeferredResources(camera, width, height) : null;
+            if (!deferred) ReleaseDeferredDepth(camera);
             var cmd = CommandBufferPool.Get("HDRP Mobile");
             try
             {
@@ -145,31 +162,38 @@ namespace UnityEngine.Rendering.HighDefinition
                 context.SetupCameraProperties(camera);
                 using (m_Graph.RecordAndExecute(new RenderGraphParameters
                 {
-                    executionName = camera.name, currentFrameIndex = Time.frameCount,
+                    executionName = camera.name, currentFrameIndex = m_RenderGraphFrameIndex,
                     scriptableRenderContext = context, commandBuffer = cmd
                 }))
                 {
                     var color = m_Graph.CreateTexture(new TextureDesc(width, height)
                     {
-                        name = "Mobile HDR Color", colorFormat = GraphicsFormat.R16G16B16A16_SFloat,
-                        clearBuffer = true, clearColor = additional != null ? additional.backgroundColorHDR : camera.backgroundColor.linear, filterMode = FilterMode.Bilinear
+                        name = "Mobile HDR Color", colorFormat = deferred ? GraphicsFormat.B10G11R11_UFloatPack32 : GraphicsFormat.R16G16B16A16_SFloat,
+                        clearBuffer = !deferred, clearColor = additional != null ? additional.backgroundColorHDR : camera.backgroundColor.linear, filterMode = FilterMode.Bilinear
                     });
-                    var depth = m_Graph.CreateTexture(new TextureDesc(width, height)
+                    var depth = deferred ? m_Graph.ImportTexture(deferredDepth) : m_Graph.CreateTexture(new TextureDesc(width, height)
                     {
                         name = "Mobile Depth", depthBufferBits = DepthBits.Depth24, clearBuffer = true
                     });
-                    int atlasSize = shadows ? Mathf.Clamp(Mathf.NextPowerOfTwo(settings.shadowAtlasSize), 256, 2048) : 1;
+                    int atlasSize = shadows ? ShadowAtlasSize(m_ShadowSettings.shadowAtlasSize) : 1;
                     var atlas = m_Graph.CreateTexture(new TextureDesc(atlasSize, atlasSize)
                     {
                         name = "Mobile Main Shadow", depthBufferBits = DepthBits.Depth16,
                         isShadowMap = true, clearBuffer = true, filterMode = FilterMode.Bilinear
                     });
                     RecordShadows(camera, culling, atlas, atlasSize, shadows);
-                    RecordScene(camera, culling, color, depth, atlas, atlasSize, shadows, width, height, exposure, exposureState);
+                    int localSize = m_LocalShadowCount > 0 ? ShadowAtlasSize(m_ShadowSettings.localShadowAtlasSize) : 1;
+                    var localAtlas = m_Graph.CreateTexture(new TextureDesc(localSize, localSize)
+                    {
+                        name = "Mobile Local Shadow Atlas", depthBufferBits = DepthBits.Depth16,
+                        isShadowMap = true, clearBuffer = true, filterMode = FilterMode.Bilinear
+                    });
+                    RecordLocalShadows(camera, culling, localAtlas, localSize);
+                    RecordScene(camera, culling, color, depth, atlas, localAtlas, localSize, atlasSize, shadows, width, height, exposure, exposureState, deferred, nativeDeferred);
                     m_ExposureHistory.Record(m_Graph, color, exposureState, exposureVolume, m_Composite, (int)settings.meteringResolution);
                     TextureHandle bloom = m_Graph.defaultResources.blackTexture;
                     var bloomVolume = m_Volumes.GetComponent<Bloom>();
-                    float bloomIntensity = settings.bloom && bloomVolume.active ? bloomVolume.intensity.value : 0f;
+                    float bloomIntensity = bloomVolume.active && bloomVolume.IsActive() ? bloomVolume.intensity.value : 0f;
                     if (bloomIntensity > 0f)
                     {
                         var down0 = RecordFilter(color, Mathf.Max(1, width / 2), Mathf.Max(1, height / 2), 1, "Mobile Bloom Half");
@@ -266,6 +290,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 if (light.light.bakingOutput.lightmapBakeType == LightmapBakeType.Baked) continue;
                 if (light.lightType != LightType.Point && light.lightType != LightType.Spot) continue;
                 indexMap[i] = count;
+                m_LocalVisibleIndices[count] = i;
                 Vector4 position = light.localToWorldMatrix.GetColumn(3);
                 position.w = 1f / Mathf.Max(0.0001f, light.range * light.range);
                 m_Positions[count] = position;
@@ -283,6 +308,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 }
                 count++;
             }
+            m_LocalLightCount = count;
             culling.SetLightIndexMap(indexMap);
             indexMap.Dispose();
         }
@@ -293,11 +319,13 @@ namespace UnityEngine.Rendering.HighDefinition
             var light = culling.visibleLights[m_MainLight].light;
             if (light == null || light.shadows == LightShadows.None || light.shadowStrength <= 0f
                 || !culling.GetShadowCasterBounds(m_MainLight, out _)) return false;
-            int tileSize = Mathf.Clamp(Mathf.NextPowerOfTwo(settings.shadowAtlasSize), 256, 2048) / 2;
-            for (int cascade = 0; cascade < 2; cascade++)
+            int grid = CascadeGrid(settings.cascadeCount);
+            int tileSize = ShadowAtlasSize(settings.shadowAtlasSize) / grid;
+            for (int cascade = 0; cascade < settings.cascadeCount; cascade++)
             {
-                if (!culling.ComputeDirectionalShadowMatricesAndCullingPrimitives(m_MainLight, cascade, 2,
-                    new Vector3(Mathf.Clamp(settings.cascadeSplit, 0.05f, 0.95f), 0, 0), tileSize, light.shadowNearPlane,
+                GetNativeCascade(settings.cascadeCount, cascade, settings.cascadeSplit, out int nativeIndex, out int nativeCount, out var ratios);
+                if (!culling.ComputeDirectionalShadowMatricesAndCullingPrimitives(m_MainLight, nativeIndex, nativeCount,
+                    ratios, tileSize, light.shadowNearPlane,
                     out m_ShadowViews[cascade], out m_ShadowProjections[cascade], out m_ShadowSplits[cascade])) return false;
                 // Shrink the exclusion sphere of preceding splits so their outer
                 // blend band is also rendered into the following cascade.
@@ -305,16 +333,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 var sphere = m_ShadowSplits[cascade].cullingSphere;
                 sphere.w *= sphere.w;
                 m_ShadowSpheres[cascade] = sphere;
-                var matrix = m_ShadowProjections[cascade] * m_ShadowViews[cascade];
-                if (SystemInfo.usesReversedZBuffer)
-                    for (int column = 0; column < 4; column++) matrix[2, column] = -matrix[2, column];
-                var bias = Matrix4x4.identity;
-                bias.m00 = bias.m11 = bias.m22 = 0.5f;
-                bias.m03 = bias.m13 = bias.m23 = 0.5f;
-                var tile = Matrix4x4.identity;
-                tile.m00 = tile.m11 = 0.5f;
-                tile.m03 = cascade * 0.5f;
-                m_ShadowMatrices[cascade] = tile * bias * matrix;
+                m_ShadowMatrices[cascade] = ShadowAtlasMatrix(m_ShadowProjections[cascade], m_ShadowViews[cascade], cascade, grid, tileSize, ShadowAtlasSize(settings.shadowAtlasSize));
             }
             return true;
         }
@@ -330,11 +349,11 @@ namespace UnityEngine.Rendering.HighDefinition
         {
             internal Camera camera;
             internal CullingResults culling;
-            internal int size, mainLight;
+            internal int size, mainLight, count, grid;
             internal float normalBias;
             internal Vector4 mainDirection;
-            internal readonly Matrix4x4[] views = new Matrix4x4[2], projections = new Matrix4x4[2];
-            internal readonly ShadowSplitData[] splits = new ShadowSplitData[2];
+            internal readonly Matrix4x4[] views = new Matrix4x4[6], projections = new Matrix4x4[6];
+            internal readonly ShadowSplitData[] splits = new ShadowSplitData[6];
             internal bool enabled;
         }
 
@@ -344,23 +363,25 @@ namespace UnityEngine.Rendering.HighDefinition
             {
                 data.camera = camera; data.culling = culling; data.size = size; data.enabled = enabled;
                 data.mainLight = m_MainLight; data.mainDirection = m_MainDirection;
-                data.normalBias = Mathf.Max(0f, m_Asset.mobileSettings.shadowNormalBias);
-                Array.Copy(m_ShadowViews, data.views, 2); Array.Copy(m_ShadowProjections, data.projections, 2);
-                Array.Copy(m_ShadowSplits, data.splits, 2);
+                data.normalBias = m_ShadowSettings.shadowNormalBias;
+                data.count = m_ShadowSettings.cascadeCount; data.grid = CascadeGrid(data.count);
+                Array.Copy(m_ShadowViews, data.views, 6); Array.Copy(m_ShadowProjections, data.projections, 6);
+                Array.Copy(m_ShadowSplits, data.splits, 6);
                 builder.UseDepthBuffer(atlas, DepthAccess.Write);
                 builder.SetRenderFunc((ShadowData pass, RenderGraphContext ctx) =>
                 {
                     if (!pass.enabled) return;
-                    int tile = pass.size / 2;
+                    int tile = pass.size / pass.grid;
                     ctx.cmd.EnableShaderKeyword(MobileKeyword);
                     ctx.cmd.SetGlobalVector("_MobileMainDirection", pass.mainDirection);
+                    ctx.cmd.SetGlobalVector("_MobileShadowLightPosition", Vector4.zero);
                     ctx.cmd.SetGlobalDepthBias(1f, 2.5f);
                     try
                     {
-                        for (int i = 0; i < 2; i++)
+                        for (int i = 0; i < pass.count; i++)
                         {
                             ctx.cmd.SetGlobalFloat("_MobileShadowNormalBias", GetShadowNormalBias(pass.normalBias, pass.projections[i], tile));
-                            ctx.cmd.SetViewport(new Rect(i * tile, 0, tile, tile));
+                            ctx.cmd.SetViewport(new Rect((i % pass.grid) * tile, (i / pass.grid) * tile, tile, tile));
                             ctx.cmd.SetViewProjectionMatrices(pass.views[i], pass.projections[i]);
                             ctx.renderContext.ExecuteCommandBuffer(ctx.cmd); ctx.cmd.Clear();
                             var draw = new ShadowDrawingSettings(pass.culling, pass.mainLight, BatchCullingProjectionType.Orthographic) { splitData = pass.splits[i] };
@@ -380,10 +401,17 @@ namespace UnityEngine.Rendering.HighDefinition
 
         class SceneData
         {
+            internal bool deferred, nativeDeferred, extendedLit;
+            internal TextureHandle color, depth, gbuffer0, gbuffer1, depthCopy;
+            internal TextureHandle gbuffer3;
             internal MobileRenderPipelineBackend owner;
             internal Camera camera;
             internal CullingResults culling;
-            internal TextureHandle atlas;
+            internal TextureHandle atlas, localAtlas;
+            internal int cascadeCount, shadowFilter, localGrid;
+            internal float localTexel;
+            internal readonly Matrix4x4[] localMatrices = new Matrix4x4[MaxLocalShadowSlices];
+            internal readonly Vector4[] localShadows = new Vector4[MaxVisibleLights];
             internal int width, height, atlasSize;
             internal bool shadows;
             internal Matrix4x4 vp;
@@ -399,14 +427,15 @@ namespace UnityEngine.Rendering.HighDefinition
             internal Vector4 indirect;
             internal bool bakedProbes;
             internal readonly Vector4[] positions = new Vector4[MaxVisibleLights], colors = new Vector4[MaxVisibleLights],
-                spots = new Vector4[MaxVisibleLights], attenuations = new Vector4[MaxVisibleLights], spheres = new Vector4[2];
-            internal readonly Matrix4x4[] shadowMatrices = new Matrix4x4[2];
+                spots = new Vector4[MaxVisibleLights], attenuations = new Vector4[MaxVisibleLights], spheres = new Vector4[6];
+            internal readonly Matrix4x4[] shadowMatrices = new Matrix4x4[6];
         }
 
         void RecordScene(Camera camera, CullingResults culling, TextureHandle color, TextureHandle depth,
-            TextureHandle atlas, int atlasSize, bool shadows, int width, int height, float exposure, MobileExposureHistory.State exposureState)
+            TextureHandle atlas, TextureHandle localAtlas, int localSize, int atlasSize, bool shadows, int width, int height, float exposure, MobileExposureHistory.State exposureState,
+            bool deferred = false, bool nativeDeferred = false)
         {
-            using (var builder = m_Graph.AddRenderPass<SceneData>("Mobile Forward", out var data))
+            using (var builder = m_Graph.AddRenderPass<SceneData>(deferred ? "Mobile Compact Deferred" : "Mobile Forward", out var data))
             {
                 data.owner = this; data.camera = camera; data.culling = culling; data.width = width;
                 data.height = height; data.atlasSize = atlasSize; data.shadows = shadows;
@@ -420,10 +449,14 @@ namespace UnityEngine.Rendering.HighDefinition
                 data.mainLight = m_MainLight; data.mainDirection = m_MainDirection; data.mainColor = m_MainColor;
                 Array.Copy(m_Positions, data.positions, MaxVisibleLights); Array.Copy(m_Colors, data.colors, MaxVisibleLights);
                 Array.Copy(m_Spots, data.spots, MaxVisibleLights); Array.Copy(m_SpotAttenuations, data.attenuations, MaxVisibleLights);
-                Array.Copy(m_ShadowMatrices, data.shadowMatrices, 2); Array.Copy(m_ShadowSpheres, data.spheres, 2);
+                Array.Copy(m_ShadowMatrices, data.shadowMatrices, 6); Array.Copy(m_ShadowSpheres, data.spheres, 6);
+                data.cascadeCount = m_ShadowSettings.cascadeCount; data.shadowFilter = m_ShadowSettings.shadowFilterSize;
+                data.localGrid = m_LocalShadowGrid; data.localTexel = 1f / localSize;
+                Array.Copy(m_LocalShadowMatrices, data.localMatrices, MaxLocalShadowSlices);
+                Array.Copy(m_LocalShadowInfo, data.localShadows, MaxVisibleLights);
                 data.lightsPerObject = Mathf.Clamp(settings.additionalLightsPerObject, 0, 4);
                 data.shadowParams = new Vector4(shadows ? culling.visibleLights[m_MainLight].light.shadowStrength : 0,
-                    1f / atlasSize, Mathf.Min(settings.shadowDistance, camera.farClipPlane), Mathf.Clamp(settings.cascadeBlend, 0, 0.3f));
+                    1f / atlasSize, Mathf.Min(m_ShadowSettings.shadowDistance, camera.farClipPlane), m_ShadowSettings.cascadeBlend);
                 data.fog = new Vector4(settings.fog ? 1 : 0, settings.fogStart, 1f / Mathf.Max(0.01f, settings.fogEnd - settings.fogStart), 0);
                 data.fogColor = settings.fogColor.linear;
                 data.drawErrors = settings.drawUnsupportedMaterials;
@@ -439,13 +472,31 @@ namespace UnityEngine.Rendering.HighDefinition
                 var indirect = m_Volumes.GetComponent<IndirectLightingController>();
                 data.indirect = indirect.active ? new Vector4(indirect.indirectDiffuseLightingMultiplier.value, indirect.reflectionLightingMultiplier.value, indirect.reflectionProbeIntensityMultiplier.value, 0) : Vector4.one;
                 data.atlas = builder.ReadTexture(atlas);
-                builder.UseColorBuffer(color, 0); builder.UseDepthBuffer(depth, DepthAccess.ReadWrite);
+                data.localAtlas = builder.ReadTexture(localAtlas);
+                data.deferred = deferred; data.nativeDeferred = nativeDeferred;
+                data.extendedLit = UseExtendedDeferred;
+                if (deferred)
+                {
+                    data.color = builder.WriteTexture(color); data.depth = builder.WriteTexture(depth);
+                    if (!nativeDeferred)
+                    {
+                        data.gbuffer0 = builder.CreateTransientTexture(new TextureDesc(width, height) { name = "Mobile GBuffer0", colorFormat = GraphicsFormat.R8G8B8A8_SRGB });
+                        data.gbuffer1 = builder.CreateTransientTexture(new TextureDesc(width, height) { name = "Mobile GBuffer1", colorFormat = GraphicsFormat.R8G8B8A8_UNorm });
+                        data.depthCopy = builder.CreateTransientTexture(new TextureDesc(width, height) { name = "Mobile Depth Copy", colorFormat = GraphicsFormat.R32_SFloat });
+                    }
+                    if (data.extendedLit && !nativeDeferred)
+                        data.gbuffer3 = builder.CreateTransientTexture(new TextureDesc(width, height) { name = "Mobile Fresnel Coat RGBA8", colorFormat = GraphicsFormat.R8G8B8A8_UNorm });
+                }
+                else { builder.UseColorBuffer(color, 0); builder.UseDepthBuffer(depth, DepthAccess.ReadWrite); }
                 builder.SetRenderFunc((SceneData pass, RenderGraphContext ctx) => pass.owner.DrawScene(pass, ctx));
             }
         }
 
         void DrawScene(SceneData pass, RenderGraphContext ctx)
         {
+            CoreUtils.SetKeyword(ctx.cmd, "MOBILE_EXTENDED_LIT", true);
+            ctx.cmd.SetGlobalFloat("_MobileDeferredExtendedLayout", pass.extendedLit ? 1 : 0);
+            BindMobileDiffusionProfiles(ctx.cmd);
             bool environment = pass.environment != null && pass.environment.ready;
             ctx.cmd.SetGlobalVector("_MobileEnvironmentParams", new Vector4(environment ? 1 : 0, pass.bakedProbes ? 1 : 0, environment ? pass.environment.mips - 1 : 0, 1024));
             ctx.cmd.SetGlobalVector("_MobileIndirectMultiplier", pass.indirect);
@@ -468,12 +519,21 @@ namespace UnityEngine.Rendering.HighDefinition
             ctx.cmd.SetGlobalVectorArray("_MobileLightAttenuations", pass.attenuations);
             ctx.cmd.SetGlobalInt("_MobileLightsPerObject", pass.lightsPerObject);
             ctx.cmd.SetGlobalTexture("_MobileShadowAtlas", pass.atlas);
-            ctx.cmd.SetGlobalMatrixArray("_MobileShadowMatrices", pass.shadowMatrices);
-            ctx.cmd.SetGlobalVectorArray("_MobileShadowSpheres", pass.spheres);
+            ctx.cmd.SetGlobalTexture("_MobileLocalShadowAtlas", pass.localAtlas);
+            ctx.cmd.SetGlobalMatrixArray("_MobileLocalShadowMatrices", pass.localMatrices);
+            ctx.cmd.SetGlobalVectorArray("_MobileLocalShadowInfo", pass.localShadows);
+            ctx.cmd.SetGlobalVector("_MobileLocalShadowParams", new Vector4(pass.localTexel, pass.localGrid, 0, 0));
+            ctx.cmd.SetGlobalInt("_MobileCascadeCount", pass.cascadeCount);
+            ctx.cmd.SetGlobalInt("_MobileShadowFilterSize", pass.shadowFilter);
+            // Unity retains global array capacity across domain reloads. Use new IDs
+            // for the six-cascade layout so a live two-cascade session can upgrade.
+            ctx.cmd.SetGlobalMatrixArray("_MobileCSMShadowMatrices6", pass.shadowMatrices);
+            ctx.cmd.SetGlobalVectorArray("_MobileCSMShadowSpheres6", pass.spheres);
             ctx.cmd.SetGlobalVector("_MobileShadowParams", pass.shadowParams);
             ctx.cmd.SetGlobalVector("_MobileFog", pass.fog);
             ctx.cmd.SetGlobalColor("_MobileFogColor", pass.fogColor);
             ctx.renderContext.ExecuteCommandBuffer(ctx.cmd); ctx.cmd.Clear();
+            if (pass.deferred) { DrawDeferredScene(pass, ctx); return; }
             DrawObjects(ctx.renderContext, pass.camera, pass.culling, pass.mainLight, false);
             if (pass.drawErrors)
             {
@@ -534,12 +594,12 @@ namespace UnityEngine.Rendering.HighDefinition
         }
 #endif
 
-        void DrawObjects(ScriptableRenderContext context, Camera camera, CullingResults culling, int mainLight, bool transparent)
+        void DrawObjects(ScriptableRenderContext context, Camera camera, CullingResults culling, int mainLight, bool transparent, string passName = null)
         {
             var sorting = new SortingSettings(camera) { criteria = transparent ? SortingCriteria.CommonTransparent : SortingCriteria.CommonOpaque };
-            var drawing = new DrawingSettings(ForwardTag, sorting)
+            var drawing = new DrawingSettings(passName == null ? ForwardTag : new ShaderTagId(passName), sorting)
             {
-                enableInstancing = true, enableDynamicBatching = false, fallbackMaterial = m_Error, mainLightIndex = mainLight,
+                enableInstancing = true, enableDynamicBatching = false, fallbackMaterial = passName == null ? m_Error : null, mainLightIndex = mainLight,
                 perObjectData = PerObjectData.Lightmaps | PerObjectData.LightProbe | PerObjectData.ReflectionProbes
                     | PerObjectData.LightData | PerObjectData.LightIndices
             };
@@ -600,7 +660,7 @@ namespace UnityEngine.Rendering.HighDefinition
                     adjustments.active ? 1 + adjustments.saturation.value / 100f : 1, 0);
                 data.filter = adjustments.active ? adjustments.colorFilter.value.linear : Color.white;
                 data.hue = adjustments.active ? adjustments.hueShift.value / 360f : 0;
-                data.options = new Vector4(m_Asset.mobileSettings.fxaa && (!mobilePost.active || mobilePost.fxaa.value) ? 1 : 0,
+                data.options = new Vector4(mobilePost.active && mobilePost.fxaa.value ? 1 : 0,
                     tone.active ? (int)tone.mode.value : 0,
                     SystemInfo.graphicsUVStartsAtTop && camera.targetTexture == null ? 1 : 0, 0);
                 data.bloomIntensity = bloomIntensity;
@@ -631,6 +691,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 {
                     m_ExposureHistory.Dispose();
                     m_Environment.Dispose();
+                    DisposeDeferred();
                     CoreUtils.Destroy(m_Composite); CoreUtils.Destroy(m_Sky); CoreUtils.Destroy(m_Error);
                     if (m_Volumes != null) VolumeManager.instance.DestroyStack(m_Volumes);
                     if (m_DefaultVolume != null) CoreUtils.Destroy(m_DefaultVolume.gameObject);
@@ -653,6 +714,7 @@ namespace UnityEngine.Rendering.HighDefinition
                                 GraphicsSettings.lightsUseLinearIntensity = m_PreviousLinear;
                                 GraphicsSettings.lightsUseColorTemperature = m_PreviousTemperature;
                                 if (m_PreviousKeyword) Shader.EnableKeyword(MobileKeyword); else Shader.DisableKeyword(MobileKeyword);
+                                if (m_PreviousExtendedKeyword) Shader.EnableKeyword("MOBILE_EXTENDED_LIT"); else Shader.DisableKeyword("MOBILE_EXTENDED_LIT");
                                 SupportedRenderingFeatures.active = m_PreviousFeatures;
                                 Shader.globalRenderPipeline = m_PreviousShaderTag;
                             }

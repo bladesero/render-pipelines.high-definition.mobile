@@ -546,6 +546,7 @@ namespace UnityEngine.Rendering.HighDefinition
         }
 
         public ShaderResources shaders;
+        public MobileRenderResources mobile = new MobileRenderResources();
         public MaterialResources materials;
         public TextureResources textures;
         public ShaderGraphResources shaderGraphs;

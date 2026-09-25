@@ -67,11 +67,13 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
                 RenderTexture.active = atlas; GL.Clear(true, false, Color.black, 0.5f);
                 ShaderUtil.CompilePass(material, 0, true);
                 material.SetTexture("_MobileShadowAtlas", atlas);
+                material.SetInt("_MobileCascadeCount", 2);
+                material.SetInt("_MobileShadowFilterSize", 2);
                 material.SetVector("_MobileCameraPosition", Vector4.zero);
-                material.SetVectorArray("_MobileShadowSpheres", new[] { new Vector4(0, 0, 0, 1), new Vector4(0, 0, 0, 4) });
+                material.SetVectorArray("_MobileCSMShadowSpheres6", new[] { new Vector4(0, 0, 0, 1), new Vector4(0, 0, 0, 4), Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero });
                 var first = Matrix4x4.zero; first.m03 = 0.25f; first.m13 = 0.25f; first.m23 = SystemInfo.usesReversedZBuffer ? 0.25f : 0.75f; first.m33 = 1;
                 var second = first; second.m03 = 0.75f; second.m23 = 1 - first.m23;
-                material.SetMatrixArray("_MobileShadowMatrices", new[] { first, second });
+                material.SetMatrixArray("_MobileCSMShadowMatrices6", new[] { first, second, Matrix4x4.zero, Matrix4x4.zero, Matrix4x4.zero, Matrix4x4.zero });
                 Color[] Capture(float strength, float blend, float distance = 100)
                 {
                     material.SetVector("_MobileShadowParams", new Vector4(strength, 1f / 64, distance, blend));
@@ -87,14 +89,14 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
                 Assert.AreEqual(0, Capture(1, 0)[99].g);
                 foreach (var pixel in Capture(0, 0.1f)) Assert.AreEqual(1, pixel.g);
                 // Beyond the second sphere and beyond the projection must be neutral.
-                material.SetVectorArray("_MobileShadowSpheres", new[] { new Vector4(0, 0, 0, 1), new Vector4(0, 0, 0, 1.21f) });
+                material.SetVectorArray("_MobileCSMShadowSpheres6", new[] { new Vector4(0, 0, 0, 1), new Vector4(0, 0, 0, 1.21f), Vector4.zero, Vector4.zero, Vector4.zero, Vector4.zero });
                 Assert.AreEqual(1, Capture(1, 0.1f)[120].g);
-                first.m03 = -1; material.SetMatrixArray("_MobileShadowMatrices", new[] { first, second });
+                first.m03 = -1; material.SetMatrixArray("_MobileCSMShadowMatrices6", new[] { first, second, Matrix4x4.zero, Matrix4x4.zero, Matrix4x4.zero, Matrix4x4.zero });
                 Assert.AreEqual(1, Capture(1, 0.1f)[0].g);
-                first.m03 = 0.25f; first.m23 = -1; material.SetMatrixArray("_MobileShadowMatrices", new[] { first, second });
+                first.m03 = 0.25f; first.m23 = -1; material.SetMatrixArray("_MobileCSMShadowMatrices6", new[] { first, second, Matrix4x4.zero, Matrix4x4.zero, Matrix4x4.zero, Matrix4x4.zero });
                 Assert.AreEqual(1, Capture(1, 0.1f)[0].g);
                 first.m23 = SystemInfo.usesReversedZBuffer ? 0.25f : 0.75f;
-                material.SetMatrixArray("_MobileShadowMatrices", new[] { first, second });
+                material.SetMatrixArray("_MobileCSMShadowMatrices6", new[] { first, second, Matrix4x4.zero, Matrix4x4.zero, Matrix4x4.zero, Matrix4x4.zero });
                 Assert.AreEqual(1, Capture(1, 0, 0.8f)[90].g);
             }
             finally

@@ -12,7 +12,7 @@ using Object = UnityEngine.Object;
 namespace UnityEditor.Rendering.HighDefinition.Tests
 {
     // Actual camera/Forward-pass tests, complementing the isolated URP BRDF oracle.
-    public class MobileImageTests
+    public partial class MobileImageTests
     {
         const int Width = 128, Height = 96;
         readonly List<Object> m_Owned = new List<Object>();
@@ -23,6 +23,8 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         Light m_Sun, m_PreviousSun;
         AmbientMode m_AmbientMode;
         Color m_Ambient;
+        DefaultReflectionMode m_PreviousReflectionMode;
+        Texture m_PreviousReflection;
         bool m_Async;
         T Own<T>(T obj) where T : Object { m_Owned.Add(obj); return obj; }
 
@@ -32,10 +34,10 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             Assert.AreNotEqual(GraphicsDeviceType.Null, SystemInfo.graphicsDeviceType, "Image validation requires a GPU; do not use -nographics.");
             m_PipelineScope.SuspendProjectPipeline();
             m_PreviousSun = RenderSettings.sun; m_Ambient = RenderSettings.ambientLight; m_AmbientMode = RenderSettings.ambientMode;
+            m_PreviousReflectionMode = RenderSettings.defaultReflectionMode; m_PreviousReflection = RenderSettings.customReflectionTexture;
             m_Scene = EditorSceneManager.NewPreviewScene();
             m_Asset = Own(ScriptableObject.CreateInstance<HDRenderPipelineAsset>());
-            m_Asset.rendererMode = HDRendererMode.Mobile; MobileRenderEditor.AssignResources(m_Asset);
-            m_Asset.mobileSettings.fxaa = false; m_Asset.mobileSettings.bloom = false;
+            m_Asset.rendererMode = HDRendererMode.Mobile;
             // Existing material oracles isolate direct/baked lighting. IBL tests opt in.
             m_Asset.mobileSettings.environmentLighting = false;
             m_Asset.mobileSettings.drawUnsupportedMaterials = false;
@@ -43,7 +45,13 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             typeof(RenderPipelineManager).GetMethod("PrepareRenderPipeline", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { m_Asset });
             m_Async = ShaderUtil.allowAsyncCompilation; ShaderUtil.allowAsyncCompilation = false;
             RenderSettings.ambientMode = AmbientMode.Flat; RenderSettings.ambientLight = Color.black;
+            // Isolate direct/emission oracles from asynchronous default-sky probe
+            // baking. Environment/probe tests explicitly provide their own sources.
+            RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
+            RenderSettings.customReflectionTexture = CoreUtils.blackCubeTexture;
             m_Camera = MakeCamera(Width, Height);
+            var postDefaults = CameraProfile(-1000);
+            postDefaults.Add<MobilePostProcessing>().fxaa.Override(false);
             var sun = MakeObject("Image test sun"); m_Sun = sun.AddComponent<Light>();
             m_Sun.type = LightType.Directional; m_Sun.intensity = 0.5f; m_Sun.shadows = LightShadows.None;
             m_Sun.cullingMask = 1 << 30; RenderSettings.sun = m_Sun;
@@ -135,6 +143,7 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             m_Owned.Clear();
             if (m_Scene.IsValid() && m_Scene.isLoaded) EditorSceneManager.ClosePreviewScene(m_Scene);
             RenderSettings.sun = m_PreviousSun; RenderSettings.ambientMode = m_AmbientMode; RenderSettings.ambientLight = m_Ambient;
+            RenderSettings.defaultReflectionMode = m_PreviousReflectionMode; RenderSettings.customReflectionTexture = m_PreviousReflection;
             m_PipelineScope.RestoreProjectPipeline();
         }
 
@@ -242,22 +251,22 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             var material = Material(true, Color.gray); Quad(material);
             var local = MakeObject("Local light").AddComponent<Light>(); local.type = LightType.Point;
             local.transform.position = new Vector3(0.5f, 0, -1); local.intensity = 0.4f; local.range = 4; local.cullingMask = 1 << 30;
-            var volumeObject = MakeObject("Volume"); volumeObject.layer = 29;
+            var volumeObject = MakeObject("Volume"); volumeObject.layer = 28;
             var volume = volumeObject.AddComponent<Volume>(); volume.isGlobal = true;
             var profile = Own(ScriptableObject.CreateInstance<VolumeProfile>()); volume.sharedProfile = profile;
             profile.Add<ColorAdjustments>().postExposure.Override(2);
             var baseline = Capture();
             var other = MakeCamera(79, 61); other.orthographic = false;
             other.transform.position = new Vector3(0.5f, 0.2f, -4); other.transform.LookAt(Vector3.zero);
-            other.GetComponent<HDAdditionalCameraData>().volumeLayerMask = 1 << 29;
+            other.GetComponent<HDAdditionalCameraData>().volumeLayerMask = (1 << 28) | (1 << 29);
             Capture(other); var restored = Capture(); Same(baseline, restored);
             SaveImage("camera-a", baseline); SaveImage("camera-aba", restored);
             var difference = new Color[baseline.Length];
             for (int i = 0; i < difference.Length; i++) difference[i] = new Color(Mathf.Abs(baseline[i].r - restored[i].r), Mathf.Abs(baseline[i].g - restored[i].g), Mathf.Abs(baseline[i].b - restored[i].b)) * 20;
             SaveImage("camera-difference-x20", difference);
-            m_Camera.GetComponent<HDAdditionalCameraData>().volumeLayerMask = 1 << 29;
+            m_Camera.GetComponent<HDAdditionalCameraData>().volumeLayerMask = (1 << 28) | (1 << 29);
             Assert.Greater(Center(Capture()).r, Center(baseline).r * 2);
-            m_Camera.GetComponent<HDAdditionalCameraData>().volumeLayerMask = 0;
+            m_Camera.GetComponent<HDAdditionalCameraData>().volumeLayerMask = 1 << 29;
             Same(baseline, Capture());
             var sentinel = new Color(0.13f, 0.27f, 0.39f, 1);
             var previous = RenderTexture.active; RenderTexture.active = m_Camera.targetTexture; GL.Clear(true, true, sentinel); RenderTexture.active = previous;
@@ -367,13 +376,52 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             }
         }
 
-        VolumeProfile CameraProfile()
+        VolumeProfile CameraProfile(float priority = 0)
         {
             var volumeObject = MakeObject("Camera profile"); volumeObject.layer = 29;
-            var volume = volumeObject.AddComponent<Volume>(); volume.isGlobal = true;
+            var volume = volumeObject.AddComponent<Volume>(); volume.isGlobal = true; volume.priority = priority;
             var profile = Own(ScriptableObject.CreateInstance<VolumeProfile>()); volume.sharedProfile = profile;
             m_Camera.GetComponent<HDAdditionalCameraData>().volumeLayerMask = 1 << 29;
             return profile;
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void PostProcessingIsControlledByVolumesWithoutAssetSwitches(bool deferred)
+        {
+            Assert.IsNull(typeof(MobileRenderSettings).GetField("bloom"));
+            Assert.IsNull(typeof(MobileRenderSettings).GetField("fxaa"));
+            if (deferred) UseDeferred();
+            var cameraSettings = CameraProfile(-500);
+            var exposure = cameraSettings.Add<Exposure>(); exposure.mode.Override(ExposureMode.Fixed); exposure.fixedExposure.Override(0);
+            cameraSettings.Add<Tonemapping>().mode.Override(TonemappingMode.None);
+            var profile = CameraProfile();
+            var bloom = profile.Add<Bloom>(); bloom.intensity.Override(0);
+            var post = profile.Add<MobilePostProcessing>(); post.fxaa.Override(false);
+            var material = Material(false, Color.gray);
+            material.SetColor("_EmissiveColor", Color.white * 8);
+            var quad = Quad(material); quad.transform.localScale = Vector3.one * 0.4f;
+            quad.transform.rotation = Quaternion.Euler(0, 0, 17);
+            var baseline = Capture();
+            float Difference(Color[] a, Color[] b)
+            {
+                float difference = 0;
+                for (int i = 0; i < a.Length; i++) difference += Mathf.Abs(a[i].r - b[i].r);
+                return difference;
+            }
+            bloom.intensity.Override(1);
+            Assert.Greater(Difference(baseline, Capture()), 1f, "Bloom Volume must enable the filter without any asset flag.");
+            bloom.intensity.Override(0);
+            Same(baseline, Capture());
+            post.fxaa.Override(true);
+            Assert.Greater(Difference(baseline, Capture()), 0.1f, "FXAA Volume must affect silhouette edges.");
+            post.fxaa.Override(false);
+            Same(baseline, Capture());
+            bloom.intensity.Override(1);
+            post.fxaa.Override(true);
+            foreach (var root in m_Scene.GetRootGameObjects())
+                if (root.TryGetComponent<Volume>(out var volume) && volume.sharedProfile == profile) volume.weight = 0;
+            Same(baseline, Capture());
         }
 
         [Test]
@@ -421,7 +469,6 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             var history = MobileExposureControl.active;
             var texture = history.GetTexture(m_Camera);
             m_Asset.mobileSettings.renderScale = 0.75f;
-            m_Asset.mobileSettings.bloom = !m_Asset.mobileSettings.bloom;
             typeof(HDRenderPipelineAsset).GetMethod("OnValidate", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(m_Asset, null);
             typeof(RenderPipelineManager).GetMethod("PrepareRenderPipeline", BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] { m_Asset });
             Assert.AreSame(pipeline, RenderPipelineManager.currentPipeline);
@@ -810,8 +857,8 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             for (int i = 0; i < 10; i++)
             {
                 m_Camera.transform.position += new Vector3(0.05f, 0, 0.1f); Capture();
-                var matrices = Shader.GetGlobalMatrixArray("_MobileShadowMatrices");
-                Assert.AreEqual(2, matrices.Length);
+                var matrices = Shader.GetGlobalMatrixArray("_MobileCSMShadowMatrices6");
+                Assert.AreEqual(6, matrices.Length);
                 foreach (var matrix in matrices) for (int element = 0; element < 16; element++)
                     Assert.IsFalse(float.IsNaN(matrix[element]) || float.IsInfinity(matrix[element]));
             }

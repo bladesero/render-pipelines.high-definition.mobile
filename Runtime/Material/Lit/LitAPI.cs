@@ -9,6 +9,7 @@ namespace UnityEngine.Rendering.HighDefinition
         // All Validate functions must be static. It allows to automatically update the shaders with a script if code changes
         internal static void ValidateMaterial(Material material)
         {
+            MobileDeferredMaterial.Validate(material);
             BaseLitAPI.SetupBaseLitKeywords(material);
             BaseLitAPI.SetupBaseLitMaterialPass(material);
             bool receiveSSR = material.GetSurfaceType() == SurfaceType.Opaque ? (material.HasProperty(kReceivesSSR) ? material.GetInt(kReceivesSSR) != 0 : false)

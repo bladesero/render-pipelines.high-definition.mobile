@@ -2,11 +2,11 @@ using System;
 
 namespace UnityEngine.Rendering.HighDefinition
 {
-    /// <summary>Volume overrides specific to the independent mobile forward backend.</summary>
+    /// <summary>Volume overrides shared by the Mobile Forward and Deferred backends.</summary>
     [Serializable, VolumeComponentMenuForRenderPipeline("Post-processing/Mobile Rendering", typeof(HDRenderPipeline))]
     public sealed class MobilePostProcessing : VolumeComponent
     {
-        /// <summary>Disable FXAA locally when the mobile asset allows it.</summary>
+        /// <summary>Enable FXAA for cameras affected by this Volume.</summary>
         public BoolParameter fxaa = new BoolParameter(true);
     }
 }

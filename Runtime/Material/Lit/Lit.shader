@@ -2,6 +2,11 @@ Shader "HDRP/Lit"
 {
     Properties
     {
+        [ToggleUI] _MobileReceiveShadows("Mobile Receive Shadows", Float) = 1
+        [ToggleUI] _MobileSpecularHighlights("Mobile Specular Highlights", Float) = 1
+        [ToggleUI] _MobileUserStencilBit("Mobile User Stencil Bit", Float) = 0
+        [HideInInspector] _MobileStencilRef("Mobile Stencil Ref", Int) = 16
+        [HideInInspector] _MobileForwardStencilRef("Mobile Forward Stencil Ref", Int) = 96
         // Following set of parameters represent the parameters node inside the MaterialGraph.
         // They are use to fill a SurfaceData. With a MaterialGraph this should not exist.
 
@@ -287,6 +292,55 @@ Shader "HDRP/Lit"
             Blend [_SrcBlend] [_DstBlend], [_AlphaSrcBlend] [_AlphaDstBlend]
             HLSLPROGRAM
             #define MOBILE_LIT 1
+            #include_with_pragmas "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobilePass.hlsl"
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "MobileForwardOnly"
+            Tags { "LightMode" = "MobileForwardOnly" }
+            Cull [_CullModeForward]
+            ZWrite [_ZWrite]
+            ZTest LEqual
+            Blend [_SrcBlend] [_DstBlend], [_AlphaSrcBlend] [_AlphaDstBlend]
+            Stencil { Ref [_MobileForwardStencilRef] ReadMask 255 WriteMask 255 Comp Always Pass Replace }
+            HLSLPROGRAM
+            #define MOBILE_LIT 1
+            #define MOBILE_FORWARD_ONLY 1
+            #include_with_pragmas "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobilePass.hlsl"
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "MobileGBuffer"
+            Tags { "LightMode" = "MobileGBuffer" }
+            Cull [_CullModeForward]
+            ZWrite On
+            ZTest LEqual
+            Blend Off
+            Stencil { Ref [_MobileStencilRef] ReadMask 255 WriteMask 255 Comp Always Pass Replace }
+            HLSLPROGRAM
+            #define MOBILE_LIT 1
+            #define MOBILE_GBUFFER 1
+            #include_with_pragmas "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobilePass.hlsl"
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "MobileGBufferExtended"
+            Tags { "LightMode" = "MobileGBufferExtended" }
+            Cull [_CullModeForward]
+            ZWrite On
+            ZTest LEqual
+            Blend Off
+            Stencil { Ref [_MobileStencilRef] ReadMask 255 WriteMask 255 Comp Always Pass Replace }
+            HLSLPROGRAM
+            #define MOBILE_LIT 1
+            #define MOBILE_GBUFFER 1
+            #define MOBILE_EXTENDED_GBUFFER 1
             #include_with_pragmas "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobilePass.hlsl"
             ENDHLSL
         }

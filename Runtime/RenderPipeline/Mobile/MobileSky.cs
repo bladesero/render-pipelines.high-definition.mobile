@@ -3,10 +3,12 @@ namespace UnityEngine.Rendering.HighDefinition
     // A raster-only fallback. Never creates a SkyRenderer, atmospheric LUT or probe.
     internal struct MobileSky
     {
-        internal int mode; // 0: clear, 1: cube, 2: gradient, 3: procedural approximation
+        internal int mode; // 0: clear, 1: cube, 2: gradient, 3: legacy procedural, 4: physical approximation
         internal Texture cube;
         internal Color top, middle, bottom, tint;
         internal float intensity, rotation, diffusion, sunSize;
+        internal Color horizonTint, zenithTint;
+        internal Vector4 physicalParameters; // Exponential tint power/scale, color saturation, reserved.
         internal bool cameraExposure;
 
         static float Intensity(SkySettings sky)
@@ -45,10 +47,17 @@ namespace UnityEngine.Rendering.HighDefinition
             var physical = stack.GetComponent<PhysicallyBasedSky>();
             if (type == (int)SkyType.PhysicallyBased && physical.active)
             {
-                result.mode = 3;
+                result.mode = 4;
                 result.top = new Color(0.15f, 0.35f, 0.75f) * physical.airTint.value.linear;
                 result.middle = new Color(0.65f, 0.75f, 0.85f) * physical.airTint.value.linear;
-                result.bottom = physical.groundTint.value.linear;
+                // Match Desktop's ground albedo and artistic tint color conventions.
+                result.bottom = physical.groundTint.value;
+                result.horizonTint = physical.horizonTint.value;
+                result.zenithTint = physical.zenithTint.value;
+                float power = 10f * physical.horizonZenithShift.value;
+                // Use the linear limit around zero to avoid cancellation in exp(x) - 1.
+                float scale = Mathf.Abs(power) < 0.001f ? 0f : 1f / (Mathf.Exp(power) - 1f);
+                result.physicalParameters = new Vector4(power, scale, physical.colorSaturation.value, 0);
                 result.intensity = Intensity(physical) * Mathf.Max(0, sunIntensity) * 0.05f;
                 return result;
             }

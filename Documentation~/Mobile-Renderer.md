@@ -14,6 +14,8 @@ Game cameras targeting the display default to a fixed 1920×1080 internal color/
 
 ## Supported content
 
+Mobile **Normal Bias (Texels)** offsets shadow-caster vertices along the negative world-space normal, weighted by `1 - saturate(N dot L)` where L points toward the light. Each cascade converts texels to world units using `2 / (abs(projection.m00) * tileResolution)`; tile resolution is half the atlas size. This is a caster inset, not a receiver offset. Earlier versions used a positive, fixed world-space offset. Existing serialized values are retained, but need retuning after this correction because their unit is now shadow texels (for example, 0.02 means 0.02 texels, not 0.02 world units).
+
 | Area | Mobile behavior |
 | --- | --- |
 | Materials | Existing HDRP/Lit (Standard) and HDRP/Unlit materials, UV0 mapping; no conversion or replacement material assets |

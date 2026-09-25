@@ -39,7 +39,7 @@ MobileVaryings MobileVert(MobileAttributes input)
     output.normalWS = SafeNormalize(mul(input.normalOS, (float3x3)UNITY_MATRIX_I_M));
     output.tangentWS = float4(SafeNormalize(mul((float3x3)UNITY_MATRIX_M, input.tangentOS.xyz)), input.tangentOS.w * unity_WorldTransformParams.w);
 #if defined(MOBILE_SHADOW)
-    output.positionWS += output.normalWS * _MobileShadowNormalBias * (1 - saturate(dot(output.normalWS, _MobileMainDirection.xyz)));
+    output.positionWS = MobileApplyShadowNormalBias(output.positionWS, output.normalWS, _MobileMainDirection.xyz, _MobileShadowNormalBias);
 #endif
     #if defined(MOBILE_PICKING) || defined(MOBILE_SELECTION) || defined(MOBILE_SHADOW)
         output.positionCS = mul(unity_MatrixVP, float4(output.positionWS, 1));

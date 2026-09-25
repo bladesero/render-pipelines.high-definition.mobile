@@ -1,11 +1,57 @@
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.HighDefinition;
 
 namespace UnityEditor.Rendering.HighDefinition.Tests
 {
     public class MobileShadowTests
     {
+        [TestCase(10f, 512, 1f, 0.0390625f)]
+        [TestCase(10f, 1024, 1f, 0.01953125f)]
+        [TestCase(20f, 512, 1f, 0.078125f)]
+        [TestCase(10f, 512, 0f, 0f)]
+        [TestCase(10f, 512, -1f, 0f)]
+        public void NormalBiasUsesCascadeTexelSize(float extent, int tileResolution, float texels, float expectedWorldDistance)
+        {
+            var projection = Matrix4x4.Ortho(-extent, extent, -extent, extent, 0.1f, 100f);
+            Assert.That(MobileRenderPipelineBackend.GetShadowNormalBias(texels, projection, tileResolution),
+                Is.EqualTo(expectedWorldDistance).Within(1e-7f));
+        }
+
+        [TestCase(1f, 1f, 2f)]
+        [TestCase(0.5f, 1f, 1.5f)]
+        [TestCase(0f, 1f, 1f)]
+        [TestCase(-1f, 1f, 1f)]
+        [TestCase(0f, 0f, 2f)]
+        public void CasterNormalBiasInsetsGeometryOnGPU(float nDotL, float bias, float expectedY)
+        {
+            Assert.AreNotEqual(GraphicsDeviceType.Null, SystemInfo.graphicsDeviceType);
+            var material = new Material(AssetDatabase.LoadAssetAtPath<Shader>("Packages/com.unity.render-pipelines.high-definition/Tests/Editor/MobileURPReference/ShadowTransition.shader"));
+            var target = new RenderTexture(1, 1, 0, RenderTextureFormat.ARGBFloat, RenderTextureReadWrite.Linear);
+            var readback = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var previous = RenderTexture.active;
+            try
+            {
+                target.Create();
+                ShaderUtil.CompilePass(material, 1, true);
+                material.SetVector("_MobileMainDirection", new Vector4(Mathf.Sqrt(1 - nDotL * nDotL), nDotL, 0, 0));
+                material.SetFloat("_MobileShadowNormalBias", bias);
+                Graphics.Blit(Texture2D.blackTexture, target, material, 1);
+                RenderTexture.active = target;
+                readback.ReadPixels(new Rect(0, 0, 1, 1), 0, 0); readback.Apply();
+                var position = readback.GetPixel(0, 0);
+                Assert.That(position.r, Is.EqualTo(1f).Within(1e-5f));
+                Assert.That(position.g, Is.EqualTo(expectedY).Within(1e-5f));
+                Assert.That(position.b, Is.EqualTo(3f).Within(1e-5f));
+            }
+            finally
+            {
+                RenderTexture.active = previous; target.Release();
+                Object.DestroyImmediate(target); Object.DestroyImmediate(readback); Object.DestroyImmediate(material);
+            }
+        }
+
         [Test]
         public void ProductionCascadeSamplingBlendsContinuouslyAndRejectsInvalidCoordinates()
         {
@@ -29,7 +75,7 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
                 Color[] Capture(float strength, float blend, float distance = 100)
                 {
                     material.SetVector("_MobileShadowParams", new Vector4(strength, 1f / 64, distance, blend));
-                    Graphics.Blit(Texture2D.blackTexture, target, material);
+                    Graphics.Blit(Texture2D.blackTexture, target, material, 0);
                     RenderTexture.active = target; readback.ReadPixels(new Rect(0, 0, 121, 1), 0, 0); readback.Apply(); return readback.GetPixels();
                 }
                 var pixels = Capture(1, 0.1f);

@@ -47,6 +47,98 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         }
         static void Near(Color expected, Color actual, float tolerance = 0.015f)
         { for (int i = 0; i < 3; i++) Assert.That(actual[i], Is.EqualTo(expected[i]).Within(tolerance * Mathf.Max(1, expected[i]))); }
+
+        static MobileSky PhysicalSky()
+        {
+            var stack = VolumeManager.instance.CreateStack();
+            try
+            {
+                stack.GetComponent<VisualEnvironment>().skyType.value = (int)SkyType.PhysicallyBased;
+                var physical = stack.GetComponent<PhysicallyBasedSky>();
+                physical.skyIntensityMode.value = SkyIntensityMode.Multiplier;
+                physical.multiplier.value = 1;
+                return MobileSky.Resolve(new MobileRenderSettings(), stack, null, 20);
+            }
+            finally { VolumeManager.instance.DestroyStack(stack); }
+        }
+
+        Color Background(MobileSky sky, Vector3 view, Vector3 sun)
+        {
+            var target = RenderTexture.GetTemporary(4, 4, 0, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear);
+            var read = new Texture2D(1, 1, TextureFormat.RGBAFloat, false, true);
+            var active = RenderTexture.active;
+            try
+            {
+                MobileEnvironmentCache.BindSky(cmd, sky, sun, Vector4.one);
+                cmd.SetGlobalFloat("_MobileSkyCameraExposure", 0);
+                cmd.SetGlobalVector("_MobileCameraForward", new Vector4(view.x, view.y, view.z, 1));
+                cmd.SetRenderTarget(target);
+                cmd.SetViewport(new Rect(0, 0, 4, 4));
+                cmd.ClearRenderTarget(false, true, Color.magenta);
+                cmd.DrawProcedural(Matrix4x4.identity, material, 0, MeshTopology.Triangles, 3);
+                Graphics.ExecuteCommandBuffer(cmd); cmd.Clear();
+                RenderTexture.active = target;
+                read.ReadPixels(new Rect(2, 2, 1, 1), 0, 0); read.Apply();
+                Assert.IsFalse(ShaderUtil.ShaderHasError(material.shader));
+                return read.GetPixel(0, 0);
+            }
+            finally { RenderTexture.active = active; RenderTexture.ReleaseTemporary(target); Object.DestroyImmediate(read); }
+        }
+
+        [Test]
+        public void PhysicalHorizonIsContinuousAndGroundRespondsToSunHeight()
+        {
+            var sky = PhysicalSky();
+            Assert.AreEqual(4, sky.mode);
+            var sun = new Vector3(0, 0.8f, -0.6f);
+            var above = Background(sky, new Vector3(0, 0.0001f, 1).normalized, sun);
+            var below = Background(sky, new Vector3(0, -0.0001f, 1).normalized, sun);
+            Near(above, below, 0.01f);
+            var dayGround = Background(sky, Vector3.down, sun);
+            var lowGround = Background(sky, Vector3.down, new Vector3(0, 0.1f, -1).normalized);
+            Assert.Greater(dayGround.r, lowGround.r * 2);
+            // An underground sun must not leave a disk on the ground hemisphere.
+            Near(Color.black, Background(sky, Vector3.down, Vector3.down), 0.001f);
+        }
+
+        [TestCase(-1f)]
+        [TestCase(0f)]
+        [TestCase(1f)]
+        public void PhysicalTintShiftHasStableEndpointsAndUpdatesEnvironment(float shift)
+        {
+            var stack = VolumeManager.instance.CreateStack();
+            try
+            {
+                stack.GetComponent<VisualEnvironment>().skyType.value = (int)SkyType.PhysicallyBased;
+                var physical = stack.GetComponent<PhysicallyBasedSky>();
+                physical.skyIntensityMode.value = SkyIntensityMode.Multiplier; physical.multiplier.value = 1;
+                physical.horizonZenithShift.value = shift;
+                physical.horizonTint.value = Color.red; physical.zenithTint.value = Color.blue;
+                var sky = MobileSky.Resolve(settings, stack, null, 20);
+                var sun = new Vector3(0, 0.8f, -0.6f);
+                var horizon = Background(sky, Vector3.forward, sun);
+                var zenith = Background(sky, Vector3.up, sun);
+                Assert.Greater(horizon.r, 0); Assert.Less(horizon.g + horizon.b, 0.001f);
+                Assert.Greater(zenith.b, 0); Assert.Less(zenith.r + zenith.g, 0.001f);
+                var middle = Background(sky, new Vector3(0, 0.5f, 0.8660254f), sun);
+                Assert.IsFalse(float.IsNaN(middle.r) || float.IsInfinity(middle.r));
+                var state = cache.Prepare(cmd, a.GetComponent<Camera>(), sky, sun, Vector4.one, settings, material);
+                Graphics.ExecuteCommandBuffer(cmd); cmd.Clear();
+                // Even-sized cube faces have no texel exactly at the pole. Compare the
+                // same direction; extreme tint shifts amplify the half-texel offset.
+                var cubeDirection = new Vector3(1f / state.size, 1, 1f / state.size).normalized;
+                Near(Background(sky, cubeDirection, sun), Pixel(state.reflection, 2));
+                int generation = state.generation;
+                physical.horizonTint.value = Color.green;
+                sky = MobileSky.Resolve(settings, stack, null, 20);
+                settings.environmentJobsPerFrame = 48;
+                cache.Prepare(cmd, a.GetComponent<Camera>(), sky, sun, Vector4.one, settings, material);
+                Graphics.ExecuteCommandBuffer(cmd); cmd.Clear();
+                Assert.AreEqual(generation + 1, state.generation);
+            }
+            finally { VolumeManager.instance.DestroyStack(stack); }
+        }
+
         [TestCase(MobileEnvironmentResolution.Low)]
         [TestCase(MobileEnvironmentResolution.High)]
         public void UniformSkyPreservesEnergyAcrossEveryFaceAndGGXMip(MobileEnvironmentResolution resolution)

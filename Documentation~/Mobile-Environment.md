@@ -33,9 +33,13 @@ Mobile 可独立从当前天空生成漫反射辐照度和 GGX 环境反射，�
 - 缓存保存未曝光辐亮度，采用固定 1/1024 存储比例以扩展 RGBA16F 的高光范围。材质照明只应用一次当前相机曝光。曝光或相机位移变化不重新卷积；Unlit 保持原亮度语义。
 - 相机销毁、对象停用、长期未使用和管线释放时清理缓存；关闭 Environment Lighting 会在下一次渲染移除对应相机缓存。
 
-Physically Based Sky 仍是轻量渐变与太阳盘近似，没有 Desktop 大气散射、云和完整物理匹配。Legacy 天空显示亮度与 HDRP 物理单位不同；制作时优先使用 Volume 天空。该方案没有通过 Android 真机帧率、功耗或热稳定性验收。
+Physically Based Sky 使用近地面、水平地平线的轻量近似：上半球向地平线集中薄雾，下半球逐渐过渡到受太阳高度和简化天空漫射照明的 Lambert 地面，太阳盘被地平线遮挡。支持 `Horizon Tint`、`Zenith Tint`、`Horizon Zenith Shift`（沿用 Desktop 的角度与指数插值语义）、`Color Saturation` 和 `Ground Tint`。这些参数和太阳变化会触发环境缓存更新，背景与环境捕获共用采样函数。
+
+这不是对 Desktop 参考图像完成误差标定的拟合，也没有完整大气散射、气溶胶、行星曲率/高海拔地平线、地面纹理或云。薄雾宽度、太阳透射和天空漫射比例使用固定近似系数。地面颜色现在作为反照率参与光照，不再是固定下半球渐变颜色；已有场景的地面反射可能随之变化。Legacy 天空保留原有路径。该方案没有通过 Android 真机帧率、功耗或热稳定性验收。
 
 ## 验证记录
+
+2026-09-25，地平线/地面近似更新：隔离工程 Windows D3D11 EditMode 验证 15/15 通过，结果见工程根目录 `MobileValidationRun/sky-tests-final.xml`。覆盖地平线连续、地面随太阳高度变化、地下太阳遮挡、Horizon Zenith Shift 的 -1/0/1 边界、同方向背景/反射一致性、染色变化触发缓存更新，以及既有 HDRI/Gradient/legacy 天空、曝光、相机独立 Volume、Lightmap 优先级回归。本次未执行 Android 构建或 Desktop 图像误差标定；下述 Android 构建记录来自此前版本。
 
 2026-09-25，Unity 2022.3.17f1 / HDRP 14.0.9 / Windows D3D11：83 项 Mobile EditMode 回归全部通过，无失败、无跳过，任务 `8681891bee2a48fe9f9e2a5ce90c9d21`。测试期间编辑器曾长时间停顿，任务累计耗时不作为性能数据。
 

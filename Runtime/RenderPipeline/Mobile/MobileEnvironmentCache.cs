@@ -64,7 +64,12 @@ namespace UnityEngine.Rendering.HighDefinition
                 h = h * 31 + sky.top.GetHashCode(); h = h * 31 + sky.middle.GetHashCode(); h = h * 31 + sky.bottom.GetHashCode();
                 h = h * 31 + sky.tint.GetHashCode(); h = h * 31 + sky.intensity.GetHashCode(); h = h * 31 + sky.rotation.GetHashCode();
                 h = h * 31 + sky.diffusion.GetHashCode(); h = h * 31 + sky.sunSize.GetHashCode();
-                if (sky.mode == 3) { h = h * 31 + direction.GetHashCode(); h = h * 31 + color.GetHashCode(); }
+                if (sky.mode == 4)
+                {
+                    h = h * 31 + sky.horizonTint.GetHashCode(); h = h * 31 + sky.zenithTint.GetHashCode();
+                    h = h * 31 + sky.physicalParameters.GetHashCode();
+                }
+                if (sky.mode == 3 || sky.mode == 4) { h = h * 31 + direction.GetHashCode(); h = h * 31 + color.GetHashCode(); }
                 return h;
             }
         }
@@ -76,6 +81,8 @@ namespace UnityEngine.Rendering.HighDefinition
             cmd.SetGlobalFloat("_MobileSkySunSize", sky.sunSize);
             cmd.SetGlobalColor("_MobileSkyTint", sky.tint); cmd.SetGlobalColor("_MobileSkyTop", sky.top);
             cmd.SetGlobalColor("_MobileSkyMiddle", sky.middle); cmd.SetGlobalColor("_MobileSkyBottom", sky.bottom);
+            cmd.SetGlobalColor("_MobileSkyHorizonTint", sky.horizonTint); cmd.SetGlobalColor("_MobileSkyZenithTint", sky.zenithTint);
+            cmd.SetGlobalVector("_MobileSkyPhysicalParameters", sky.physicalParameters);
             cmd.SetGlobalVector("_MobileMainDirection", direction); cmd.SetGlobalVector("_MobileMainColor", color);
         }
         internal State Prepare(CommandBuffer cmd, Camera camera, MobileSky sky, Vector4 direction, Vector4 color, MobileRenderSettings settings, Material material)

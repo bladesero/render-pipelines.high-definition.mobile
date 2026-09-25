@@ -27,6 +27,7 @@ namespace UnityEngine.Rendering.HighDefinition
         [Range(0.05f, 0.95f)] public float cascadeSplit = 0.35f;
         [Tooltip("Fraction of the first cascade radius used to blend into the second cascade. Zero disables blending.")]
         [Range(0f, 0.3f)] public float cascadeBlend = 0.1f;
+        [Tooltip("Inset shadow casters along the negative surface normal, in shadow-map texels. Converted to world units separately for each cascade and reduced on surfaces facing the light.")]
         [Min(0f)] public float shadowNormalBias = 0.02f;
         public bool fxaa = true;
         public MobileMeteringResolution meteringResolution = MobileMeteringResolution.Medium;

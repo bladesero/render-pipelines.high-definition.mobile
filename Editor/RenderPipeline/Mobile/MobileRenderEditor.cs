@@ -104,7 +104,7 @@ namespace UnityEditor.Rendering.HighDefinition
                 Field(serialized, "shadowDistance", "Maximum Shadow Distance", "Maximum distance in world units over which directional shadows are rendered.");
                 Field(serialized, "cascadeSplit", "Cascade Split", "First cascade split as a fraction of the shadow distance. Mobile always uses two cascades.");
                 Field(serialized, "cascadeBlend", "Cascade Blend", "Fraction of the first cascade radius used to blend into the second cascade. Zero disables blending.");
-                Field(serialized, "shadowNormalBias", "Normal Bias", "Offset shadow receivers along the surface normal to reduce self-shadowing.");
+                Field(serialized, "shadowNormalBias", "Normal Bias (Texels)", "Inset shadow casters along the negative surface normal to reduce self-shadowing. Measured in shadow-map texels and converted per cascade; reduced on surfaces facing the light.");
             }
         }
 

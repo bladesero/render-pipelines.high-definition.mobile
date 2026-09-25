@@ -319,6 +319,13 @@ namespace UnityEngine.Rendering.HighDefinition
             return true;
         }
 
+        internal static float GetShadowNormalBias(float biasInTexels, Matrix4x4 projection, int tileResolution)
+        {
+            // Directional projections span two clip-space units. Use the cascade tile,
+            // not the full atlas, to convert shadow texels into world-space distance.
+            return Mathf.Max(0f, biasInTexels) * 2f / (Mathf.Abs(projection.m00) * tileResolution);
+        }
+
         class ShadowData
         {
             internal Camera camera;
@@ -346,13 +353,13 @@ namespace UnityEngine.Rendering.HighDefinition
                     if (!pass.enabled) return;
                     int tile = pass.size / 2;
                     ctx.cmd.EnableShaderKeyword(MobileKeyword);
-                    ctx.cmd.SetGlobalFloat("_MobileShadowNormalBias", pass.normalBias);
                     ctx.cmd.SetGlobalVector("_MobileMainDirection", pass.mainDirection);
                     ctx.cmd.SetGlobalDepthBias(1f, 2.5f);
                     try
                     {
                         for (int i = 0; i < 2; i++)
                         {
+                            ctx.cmd.SetGlobalFloat("_MobileShadowNormalBias", GetShadowNormalBias(pass.normalBias, pass.projections[i], tile));
                             ctx.cmd.SetViewport(new Rect(i * tile, 0, tile, tile));
                             ctx.cmd.SetViewProjectionMatrices(pass.views[i], pass.projections[i]);
                             ctx.renderContext.ExecuteCommandBuffer(ctx.cmd); ctx.cmd.Clear();
@@ -475,15 +482,8 @@ namespace UnityEngine.Rendering.HighDefinition
             }
             if (pass.sky.mode != 0 && pass.drawSky)
             {
-                if (pass.sky.cube != null) ctx.cmd.SetGlobalTexture("_MobileSky", pass.sky.cube);
-                ctx.cmd.SetGlobalFloat("_MobileSkyIntensity", pass.sky.intensity);
+                MobileEnvironmentCache.BindSky(ctx.cmd, pass.sky, pass.mainDirection, pass.mainColor);
                 ctx.cmd.SetGlobalFloat("_MobileSkyCameraExposure", pass.sky.cameraExposure ? 1 : 0);
-                ctx.cmd.SetGlobalVector("_MobileSkyOptions", new Vector4(pass.sky.mode, Mathf.Cos(pass.sky.rotation), Mathf.Sin(pass.sky.rotation), pass.sky.diffusion));
-                ctx.cmd.SetGlobalFloat("_MobileSkySunSize", pass.sky.sunSize);
-                ctx.cmd.SetGlobalColor("_MobileSkyTint", pass.sky.tint);
-                ctx.cmd.SetGlobalColor("_MobileSkyTop", pass.sky.top);
-                ctx.cmd.SetGlobalColor("_MobileSkyMiddle", pass.sky.middle);
-                ctx.cmd.SetGlobalColor("_MobileSkyBottom", pass.sky.bottom);
                 ctx.cmd.DrawProcedural(Matrix4x4.identity, m_Sky, 0, MeshTopology.Triangles, 3);
                 ctx.renderContext.ExecuteCommandBuffer(ctx.cmd); ctx.cmd.Clear();
             }

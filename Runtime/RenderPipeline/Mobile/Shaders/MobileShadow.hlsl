@@ -1,6 +1,14 @@
 #ifndef HDRP_MOBILE_SHADOW_INCLUDED
 #define HDRP_MOBILE_SHADOW_INCLUDED
 
+float3 MobileApplyShadowNormalBias(float3 positionWS, float3 normalWS, float3 lightDirection, float biasWS)
+{
+    // lightDirection points toward the light. Inset caster geometry along -N;
+    // pushing the caster out along +N increases self-shadowing instead.
+    float grazing = 1 - saturate(dot(normalWS, lightDirection));
+    return positionWS - normalWS * (biasWS * grazing);
+}
+
 float MobileCascadeWeight(float distanceSquared, float radiusSquared, float blend)
 {
     if (blend <= 0 || radiusSquared <= 0) return 0;

@@ -118,6 +118,7 @@ MonoBehaviour:
     gradientSkyPS: {fileID: 4800000, guid: 2b5d4f1b26f03dc4a873b093e0c4adb1, type: 3}
     ambientProbeConvolutionCS: {fileID: 7200000, guid: 6d048f7b1bd45e840b4e79ec92639fa8,
       type: 3}
+    skyLUTGenerator: {fileID: 7200000, guid: 79224112d91b32241be6b65802863db4, type: 3}
     groundIrradiancePrecomputationCS: {fileID: 7200000, guid: eb6ae6f326207ee4d987a3e5adddf63a,
       type: 3}
     inScatteredRadiancePrecomputationCS: {fileID: 7200000, guid: 70c69d514688f8545855680760d77418,
@@ -126,7 +127,6 @@ MonoBehaviour:
       type: 3}
     planarReflectionFilteringCS: {fileID: 7200000, guid: 9f3f8a01b8caaaa4595591dc96d43dd2,
       type: 3}
-    skyLUTGenerator: {fileID: 7200000, guid: 79224112d91b32241be6b65802863db4, type: 3}
     cloudLayerPS: {fileID: 4800000, guid: 001a47fa123e95a4bba13ecb0442d944, type: 3}
     bakeCloudTextureCS: {fileID: 7200000, guid: 09a7f6850ee9fb4439e5ebd632127da5,
       type: 3}
@@ -279,6 +279,12 @@ MonoBehaviour:
     temporalFilterCS: {fileID: 7200000, guid: 741979ff70f7bd6489fbcb464280ecff, type: 3}
     diffuseDenoiserCS: {fileID: 7200000, guid: b4ed2382141619f40af1f743a84ccaea, type: 3}
     furnaceTestCS: {fileID: 7200000, guid: 9c19385e40e70ea41811a942a46b04a3, type: 3}
+  mobile:
+    compositeShader: {fileID: 4800000, guid: 0c76816d54f249a5acc1c152ace12937, type: 3}
+    sgsr2Shader: {fileID: 4800000, guid: 6afa572a08ae4d2989cc09fde88a1bff, type: 3}
+    skyShader: {fileID: 4800000, guid: a99506d86e904410b978a98b3e1ee325, type: 3}
+    errorShader: {fileID: 4800000, guid: 6ee053a685a64e2ea8fa7f5af0222f0a, type: 3}
+    deferredShader: {fileID: 4800000, guid: ac272a51f4d058c49af307be2abd9cf7, type: 3}
   materials:
     areaLightCookieMaterial: {fileID: 2100000, guid: 78c6825c5d9c3664f9879ae8609618c7,
       type: 2}
@@ -403,9 +409,4 @@ MonoBehaviour:
     probeDebugSphere: {fileID: 532591105809680800, guid: b979359990531a2489ebd7a0ef0f9f01,
       type: 3}
     pyramidMesh: {fileID: 10213, guid: 0000000000000000e000000000000000, type: 0}
-  mobile:
-    compositeShader: {fileID: 4800000, guid: 0c76816d54f249a5acc1c152ace12937, type: 3}
-    skyShader: {fileID: 4800000, guid: a99506d86e904410b978a98b3e1ee325, type: 3}
-    errorShader: {fileID: 4800000, guid: 6ee053a685a64e2ea8fa7f5af0222f0a, type: 3}
-    deferredShader: {fileID: 4800000, guid: ac272a51f4d058c49af307be2abd9cf7, type: 3}
   m_Version: 4

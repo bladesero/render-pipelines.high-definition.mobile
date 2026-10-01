@@ -547,6 +547,35 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             }
         }
 
+        [TestCase(false)] [TestCase(true)]
+        public void LightProbeMatchesLightmapAtEqualIrradiance(bool deferred)
+        {
+            m_Sun.enabled = false;
+            m_Asset.mobileSettings.renderingPath = deferred ? MobileRenderingPath.Deferred : MobileRenderingPath.Forward;
+            var profile = CameraProfile();
+            var exposure = profile.Add<Exposure>(); exposure.mode.Override(ExposureMode.Fixed); exposure.fixedExposure.Override(0);
+            profile.Add<IndirectLightingController>().reflectionLightingMultiplier.Override(0);
+            var renderer = Quad(Material(true, Color.white));
+            var maps = LightmapSettings.lightmaps; var mode = LightmapSettings.lightmapsMode;
+            try
+            {
+                var value = new Color(0.4f, 0.2f, 0.1f, 1);
+                var map = Own(new Texture2D(2, 2, TextureFormat.RGBAFloat, false, true));
+                map.SetPixels(new[] { value, value, value, value }); map.Apply();
+                LightmapSettings.lightmapsMode = LightmapsMode.NonDirectional;
+                LightmapSettings.lightmaps = new[] { new LightmapData { lightmapColor = map } };
+                renderer.lightmapIndex = 0; renderer.lightmapScaleOffset = new Vector4(1, 1, 0, 0);
+                var reference = Center(Capture()); Assert.Greater(reference.r, 0.1f);
+                renderer.lightmapIndex = -1; renderer.lightProbeUsage = LightProbeUsage.CustomProvided;
+                var sh = new SphericalHarmonicsL2(); sh.AddAmbientLight(value);
+                var block = new MaterialPropertyBlock(); block.CopySHCoefficientArraysFrom(new[] { sh }); renderer.SetPropertyBlock(block);
+                var actual = Center(Capture());
+                TestContext.WriteLine($"Lightmap={reference}, SH={actual}");
+                Near(reference, actual, "Equal irradiance must give equal diffuse brightness");
+            }
+            finally { renderer.lightmapIndex = -1; renderer.SetPropertyBlock(null); LightmapSettings.lightmaps = maps; LightmapSettings.lightmapsMode = mode; }
+        }
+
         [Test]
         public void RuntimeEnvironmentDoesNotAddDiffuseOverLightmaps()
         {

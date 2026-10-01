@@ -15,6 +15,9 @@ namespace UnityEngine.Rendering.HighDefinition
     {
         [System.NonSerialized]
         internal bool isInOnValidateCall = false;
+#if UNITY_EDITOR
+        [System.NonSerialized] bool m_PipelineValidationQueued;
+#endif
 
         HDRenderPipelineAsset()
         {
@@ -62,7 +65,24 @@ namespace UnityEngine.Rendering.HighDefinition
             // ordinary inspector edits must not discard camera exposure/environment histories.
             bool mobileLiveUpdate = RenderPipelineManager.currentPipeline is HDRenderPipeline pipeline && pipeline.CanUpdateMobileAssetInPlace(this);
             if (GraphicsSettings.currentRenderPipeline == this && !mobileLiveUpdate)
+            {
+#if UNITY_EDITOR
+                // Rebuilding creates/destroys the Mobile default Volume GameObject.
+                // Unity forbids those operations inside OnValidate; rebuild on the editor tick.
+                if (!m_PipelineValidationQueued)
+                {
+                    m_PipelineValidationQueued = true;
+                    UnityEditor.EditorApplication.delayCall += () =>
+                    {
+                        m_PipelineValidationQueued = false;
+                        if (this != null && GraphicsSettings.currentRenderPipeline == this)
+                            base.OnValidate();
+                    };
+                }
+#else
                 base.OnValidate();
+#endif
+            }
 
             isInOnValidateCall = false;
         }

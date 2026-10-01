@@ -6,6 +6,9 @@ namespace UnityEngine.Rendering.HighDefinition
     /// <summary>Selects the independently initialized HDRP renderer.</summary>
     public enum HDRendererMode { Desktop = 0, Mobile = 1 }
 
+    /// <summary>Optional temporal reconstruction for perspective Mobile Game cameras.</summary>
+    public enum MobileUpscalingMode { Bilinear = 0, SGSR2Lite = 1, SGSR2Ultra = 2 }
+
     /// <summary>Opaque lighting path. Existing assets retain Forward.</summary>
     public enum MobileRenderingPath { Forward = 0, Deferred = 1 }
     /// <summary>Opt-in renderer submission for MobileInstanceGroup components.</summary>
@@ -38,6 +41,11 @@ namespace UnityEngine.Rendering.HighDefinition
         [Tooltip("Render Game cameras targeting the display at 1920x1080 before upscaling. Preview cameras and explicit RenderTextures retain their own dimensions.")]
         public bool fixed1080p = true;
         [Range(0.5f, 1f)] public float renderScale = 1f;
+        [Tooltip("SGSR2 owns camera jitter and replaces FXAA. Supports perspective Game cameras. Unsupported cameras retain bilinear output.")]
+        public MobileUpscalingMode upscalingMode = MobileUpscalingMode.Bilinear;
+        [Tooltip("Use minimum 16-bit color arithmetic. Benchmark on the target GPU; Ultra can be faster in full precision.")]
+        public bool sgsr2HalfPrecision;
+        [Range(0f, 1f)] public float sgsr2Sharpness = 0.2f;
         [Range(0, 4)] public int additionalLightsPerObject = 4;
         public bool mainLightShadows = true;
         [Range(256, 4096)] public int shadowAtlasSize = 4096;
@@ -87,6 +95,8 @@ namespace UnityEngine.Rendering.HighDefinition
     {
         [Reload("Runtime/RenderPipeline/Mobile/Shaders/MobileComposite.shader")]
         public Shader compositeShader;
+        [Reload("Runtime/RenderPipeline/Mobile/Shaders/MobileSGSR2.shader")]
+        public Shader sgsr2Shader;
         [Reload("Runtime/RenderPipeline/Mobile/Shaders/MobileSky.shader")]
         public Shader skyShader;
         [Reload("Runtime/RenderPipeline/Mobile/Shaders/MobileError.shader")]

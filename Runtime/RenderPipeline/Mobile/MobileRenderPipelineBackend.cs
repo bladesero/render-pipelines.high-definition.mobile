@@ -184,9 +184,21 @@ namespace UnityEngine.Rendering.HighDefinition
             bool deferred = !capture && ResolveDeferred(context, camera, culling, out nativeDeferred);
             var deferredDepth = deferred ? EnsureDeferredResources(camera, width, height) : null;
             if (!deferred) ReleaseDeferredDepth(camera);
+            var originalProjection = camera.projectionMatrix;
+            var originalNonJittered = camera.nonJitteredProjectionMatrix;
+            bool originalTransparentJitter = camera.useJitteredProjectionMatrixForTransparentRendering;
+            var sgsr = capture ? null : PrepareSgsr(camera, width, height);
+            Vector2 sgsrJitter = sgsr != null ? new Vector2(SgsrHalton(sgsr.frame % 32 + 1, 2) - 0.5f,
+                SgsrHalton(sgsr.frame % 32 + 1, 3) - 0.5f) : Vector2.zero;
             var cmd = CommandBufferPool.Get("HDRP Mobile");
             try
             {
+                if (sgsr != null)
+                {
+                    camera.nonJitteredProjectionMatrix = originalProjection;
+                    camera.projectionMatrix = Matrix4x4.Translate(new Vector3(2 * sgsrJitter.x / width, 2 * sgsrJitter.y / height, 0)) * originalProjection;
+                    camera.useJitteredProjectionMatrixForTransparentRendering = true;
+                }
                 if (capture)
                 {
                     // No feedback from the probe currently being baked or its old cube.
@@ -261,7 +273,12 @@ namespace UnityEngine.Rendering.HighDefinition
                     var output = m_Graph.ImportBackbuffer(camera.targetTexture != null
                         ? new RenderTargetIdentifier(camera.targetTexture) : new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget));
                     if (capture) RecordReflectionCapture(color, output, width, height);
-                    else RecordComposite(camera, color, bloom, output, width, height, bloomIntensity, frameSettings);
+                    else
+                    {
+                        var finalColor = sgsr != null ? RecordSgsr(camera, color, depth, sgsr, originalProjection, sgsrJitter) : color;
+                        RecordComposite(camera, finalColor, bloom, output, sgsr != null ? camera.pixelWidth : width,
+                            sgsr != null ? camera.pixelHeight : height, bloomIntensity, frameSettings, sgsr != null);
+                    }
 #if UNITY_EDITOR
                     if (!capture && (camera.cameraType == CameraType.SceneView || UnityEditor.Handles.ShouldRenderGizmos()))
                         RecordEditorGizmos(camera, depth, output);
@@ -271,8 +288,26 @@ namespace UnityEngine.Rendering.HighDefinition
                 cmd.Clear();
                 context.Submit();
                 if (!capture) MobileExposureHistory.Commit(exposureState);
+                if (sgsr != null && sgsr.written)
+                {
+                    var swap = sgsr.a; sgsr.a = sgsr.b; sgsr.b = swap;
+                    swap = sgsr.inputA; sgsr.inputA = sgsr.inputB; sgsr.inputB = swap;
+                    sgsr.previousJitter = new Vector2(sgsrJitter.x, SystemInfo.graphicsUVStartsAtTop ? -sgsrJitter.y : sgsrJitter.y);
+                    sgsr.vp = GL.GetGPUProjectionMatrix(originalProjection, true) * camera.worldToCameraMatrix;
+                    sgsr.projection = originalProjection; sgsr.position = camera.transform.position;
+                    sgsr.rotation = camera.transform.rotation; sgsr.lastFrame = Time.frameCount; sgsr.frame++;
+                }
             }
-            finally { CommandBufferPool.Release(cmd); }
+            finally
+            {
+                if (sgsr != null)
+                {
+                    camera.projectionMatrix = originalProjection;
+                    camera.nonJitteredProjectionMatrix = originalNonJittered;
+                    camera.useJitteredProjectionMatrixForTransparentRendering = originalTransparentJitter;
+                }
+                CommandBufferPool.Release(cmd);
+            }
         }
 
         internal void SynchronizeBakedReflectionProbes()
@@ -750,7 +785,7 @@ namespace UnityEngine.Rendering.HighDefinition
             }
         }
 
-        void RecordComposite(Camera camera, TextureHandle color, TextureHandle bloom, TextureHandle output, int width, int height, float bloomIntensity, FrameSettings frameSettings)
+        void RecordComposite(Camera camera, TextureHandle color, TextureHandle bloom, TextureHandle output, int width, int height, float bloomIntensity, FrameSettings frameSettings, bool temporalUpscaling = false)
         {
             bool postProcess = frameSettings.IsEnabled(FrameSettingsField.Postprocess);
             bool grading = postProcess && frameSettings.IsEnabled(FrameSettingsField.ColorGrading);
@@ -770,7 +805,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 data.viewport = camera.pixelRect;
                 data.sourceSize = new Vector4(1f / width, 1f / height, width, height);
                 data.postExposure = Mathf.Pow(2f, grading && adjustments.active ? adjustments.postExposure.value : 0);
-                data.options = new Vector4(IsFXAAEnabled(camera, frameSettings) ? 1 : 0,
+                data.options = new Vector4(!temporalUpscaling && IsFXAAEnabled(camera, frameSettings) ? 1 : 0,
                     0,
                     SystemInfo.graphicsUVStartsAtTop && camera.targetTexture == null ? 1 : 0, 0);
                 data.bloomIntensity = bloomIntensity;
@@ -812,6 +847,7 @@ namespace UnityEngine.Rendering.HighDefinition
                     m_MobileGradingLut?.Release();
                     m_MobileGradingLut = null;
                     DisposeDeferred();
+                    DisposeSgsr();
                     CoreUtils.Destroy(m_Composite); CoreUtils.Destroy(m_Sky); CoreUtils.Destroy(m_Error);
                     if (m_Volumes != null) VolumeManager.instance.DestroyStack(m_Volumes);
                     if (m_DefaultVolume != null) CoreUtils.Destroy(m_DefaultVolume.gameObject);

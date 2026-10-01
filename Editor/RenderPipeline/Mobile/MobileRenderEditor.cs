@@ -81,6 +81,9 @@ namespace UnityEditor.Rendering.HighDefinition
             if (Setting(serialized, "renderingPath").enumValueIndex == (int)MobileRenderingPath.Deferred)
                 Field(serialized, "deferredExecution", "Deferred Execution", "Auto uses stored GBuffer textures on desktop and native subpasses on Android Vulkan. D3D11/D3D12 require Auto or Sampled. Forced Native is reserved for Vulkan validation.");
             Field(serialized, "fixed1080p", "Fixed 1080p Resolution", "Use a 1920 x 1080 base resolution for Game cameras targeting the display. Preview cameras and RenderTextures retain their dimensions. Render Scale applies in both modes.");
+            Field(serialized, "upscalingMode", "Upscaling", "SGSR2 temporal Lite / Ultra upscaling. Perspective Game cameras only.");
+            Field(serialized, "sgsr2HalfPrecision", "SGSR2 Half Precision", "Benchmark on the target GPU. Ultra often benefits from full precision.");
+            Field(serialized, "sgsr2Sharpness", "SGSR2 Ultra Sharpness", "Output-only sharpening; history remains unsharpened.");
             Field(serialized, "renderScale", "Render Scale", "Scale the base width and height before upscaling. This is a fixed scale, not Desktop dynamic resolution.");
         }
 

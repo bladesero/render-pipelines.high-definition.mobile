@@ -24,7 +24,7 @@ namespace UnityEngine.Rendering.HighDefinition
 #endif
                 var resources = settings != null ? settings.renderPipelineResources : null;
 #if UNITY_EDITOR
-                if (resources != null && (resources.mobile == null || !resources.mobile.isValid || resources.mobile.deferredShader == null))
+                if (resources != null && (resources.mobile == null || !resources.mobile.isValid || resources.mobile.deferredShader == null || resources.mobile.sgsr2Shader == null))
                     settings.EnsureRuntimeResources(forceReload: true);
 #endif
                 return resources != null && resources.mobile != null ? resources.mobile : s_UnavailableMobileResources;

@@ -236,6 +236,21 @@ Shader "HDRP/Unlit"
 
         Pass
         {
+            Name "MobileForwardOnlyExtended"
+            Tags { "LightMode" = "MobileForwardOnlyExtended" }
+            Cull [_CullMode]
+            ZWrite [_ZWrite]
+            ZTest LEqual
+            Blend [_SrcBlend] [_DstBlend], [_AlphaSrcBlend] [_AlphaDstBlend]
+            Stencil { Ref [_MobileStencilRef] ReadMask 255 WriteMask 255 Comp Always Pass Replace }
+            HLSLPROGRAM
+
+            #include_with_pragmas "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobilePass.hlsl"
+            ENDHLSL
+        }
+
+        Pass
+        {
             Name "DepthForwardOnly"
             Tags{ "LightMode" = "DepthForwardOnly" }
 
@@ -439,6 +454,9 @@ Shader "HDRP/Unlit"
             #pragma vertex Vert
             #pragma fragment Frag
             #pragma multi_compile _ HDRP_MOBILE_RENDERER
+            // Shared caster variants must survive Player builds and carry UVs in the vertex stage.
+            #define HDRP_SHADOW_ALPHA_VARIANTS 1
+            #pragma multi_compile_local _ _ALPHATEST_ON
             #pragma shader_feature_local _DOUBLESIDED_ON
             #if defined(HDRP_MOBILE_RENDERER)
             #define MOBILE_SHADOW 1

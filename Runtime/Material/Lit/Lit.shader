@@ -314,6 +314,22 @@ Shader "HDRP/Lit"
 
         Pass
         {
+            Name "MobileForwardOnlyExtended"
+            Tags { "LightMode" = "MobileForwardOnlyExtended" }
+            Cull [_CullModeForward]
+            ZWrite [_ZWrite]
+            ZTest LEqual
+            Blend [_SrcBlend] [_DstBlend], [_AlphaSrcBlend] [_AlphaDstBlend]
+            Stencil { Ref [_MobileForwardStencilRef] ReadMask 255 WriteMask 255 Comp Always Pass Replace }
+            HLSLPROGRAM
+            #define MOBILE_LIT 1
+            #define MOBILE_FORWARD_ONLY 1
+            #include_with_pragmas "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobilePass.hlsl"
+            ENDHLSL
+        }
+
+        Pass
+        {
             Name "MobileGBuffer"
             Tags { "LightMode" = "MobileGBuffer" }
             Cull [_CullModeForward]
@@ -528,6 +544,9 @@ Shader "HDRP/Lit"
             #pragma vertex Vert
             #pragma fragment Frag
             #pragma multi_compile _ HDRP_MOBILE_RENDERER
+            // Shared caster variants must survive Player builds and carry UVs in the vertex stage.
+            #define HDRP_SHADOW_ALPHA_VARIANTS 1
+            #pragma multi_compile_local _ _ALPHATEST_ON
             #if defined(HDRP_MOBILE_RENDERER)
             #define MOBILE_SHADOW 1
             #define MOBILE_LIT 1

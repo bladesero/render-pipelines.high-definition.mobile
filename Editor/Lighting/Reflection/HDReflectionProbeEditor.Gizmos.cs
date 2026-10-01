@@ -54,7 +54,8 @@ namespace UnityEditor.Rendering.HighDefinition
                 // current gizmo camera and an absolute world-space transform.
                 material.SetMatrix("_MobileProbePreviewVP", GL.GetGPUProjectionMatrix(camera.projectionMatrix, camera.targetTexture != null) * camera.worldToCameraMatrix);
                 material.SetVector("_MobileProbePreviewCamera", camera.transform.position);
-                material.SetFloat("_MobileProbePreviewIntensity", probe.multiplier * Mathf.Max(probe.rangeCompressionFactor, 1e-6f));
+                // Like Desktop, preview the stored cubemap with camera exposure.
+                // Probe intensity/range compensation belongs to material lighting.
             }
             if (!material.SetPass(mobile ? material.FindPass("MobileReflectionProbePreview") : 0)) return;
             Graphics.DrawMeshNow(sphere, Matrix4x4.TRS(capturePosition, Quaternion.identity, Vector3.one * capturePointPreviewSize));

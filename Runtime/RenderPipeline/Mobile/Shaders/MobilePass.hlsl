@@ -3,6 +3,8 @@
 #pragma vertex MobileVert
 #pragma fragment MobileFrag
 #pragma multi_compile_instancing
+#pragma instancing_options forcemaxcount:128
+#pragma multi_compile_local _ MOBILE_INSTANCE_DATA
 #pragma multi_compile _ MOBILE_EXTENDED_LIT
 #pragma shader_feature_local _TANGENTMAP
 #pragma shader_feature_local _ANISOTROPYMAP

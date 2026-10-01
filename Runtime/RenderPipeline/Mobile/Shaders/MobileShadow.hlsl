@@ -1,6 +1,9 @@
 #ifndef HDRP_MOBILE_SHADOW_INCLUDED
 #define HDRP_MOBILE_SHADOW_INCLUDED
 
+// Keep the complete shadow path in FP32: world/atlas coordinates, cascade sphere
+// tests, filtering and blending. Do not narrow comparison results to mobile_half.
+
 float3 MobileApplyShadowNormalBias(float3 positionWS, float3 normalWS, float3 lightDirection, float biasWS)
 {
     // lightDirection points toward the light. Inset caster geometry along -N;
@@ -29,11 +32,11 @@ float4 MobileCascadeTile(int cascade)
     return MobileShadowTile(cascade, grid, _MobileShadowParams.y);
 }
 
-mobile_half MobileFilterShadow(TEXTURE2D_SHADOW_PARAM(atlas, comparisonSampler), float3 projected, float4 tile, float texel)
+float MobileFilterShadow(TEXTURE2D_SHADOW_PARAM(atlas, comparisonSampler), float3 projected, float4 tile, float texel)
 {
     if (projected.z <= 0 || projected.z >= 1 || any(projected.xy < tile.xy) || any(projected.xy > tile.zw)) return 1;
     int kernel = clamp(_MobileShadowFilterSize, 1, 4);
-    mobile_half shadow = 0;
+    float shadow = 0;
     [unroll] for (int y = 0; y < 4; y++)
         [unroll] for (int x = 0; x < 4; x++)
         {
@@ -47,7 +50,7 @@ mobile_half MobileFilterShadow(TEXTURE2D_SHADOW_PARAM(atlas, comparisonSampler),
     return shadow / (kernel * kernel);
 }
 
-mobile_half MobileSampleCascade(float3 positionWS, int cascade)
+float MobileSampleCascade(float3 positionWS, int cascade)
 {
     float3 projected = mul(_MobileCSMShadowMatrices6[cascade], float4(positionWS, 1)).xyz;
     return MobileFilterShadow(TEXTURE2D_SHADOW_ARGS(_MobileShadowAtlas, sampler_MobileShadowAtlas),
@@ -70,12 +73,12 @@ float MobileShadowFade(float3 positionWS)
     return saturate((1 - distance(positionWS, _MobileCameraPosition.xyz) / max(_MobileShadowParams.z, 0.01)) * 10);
 }
 
-mobile_half MobileShadow(float3 positionWS)
+float MobileShadow(float3 positionWS)
 {
     if (_MobileShadowParams.x <= 0) return 1;
     int cascade = MobileSelectCascade(positionWS);
     if (cascade < 0) return 1;
-    mobile_half shadow = MobileSampleCascade(positionWS, cascade);
+    float shadow = MobileSampleCascade(positionWS, cascade);
     if (cascade + 1 < _MobileCascadeCount)
     {
         float3 delta = positionWS - _MobileCSMShadowSpheres6[cascade].xyz;
@@ -95,7 +98,7 @@ int MobilePointShadowFace(float3 direction)
     return direction.z >= 0 ? 4 : 5;
 }
 
-mobile_half MobileLocalShadow(float3 positionWS, uint lightIndex)
+float MobileLocalShadow(float3 positionWS, uint lightIndex)
 {
     float4 info = _MobileLocalShadowInfo[lightIndex];
     if (info.y <= 0) return 1;
@@ -103,7 +106,7 @@ mobile_half MobileLocalShadow(float3 positionWS, uint lightIndex)
     if (info.z > 1) slice += MobilePointShadowFace(positionWS - _MobileLightPositions[lightIndex].xyz);
     float4 projected = mul(_MobileLocalShadowMatrices[slice], float4(positionWS, 1));
     if (projected.w <= 0) return 1;
-    mobile_half shadow = MobileFilterShadow(TEXTURE2D_SHADOW_ARGS(_MobileLocalShadowAtlas, sampler_MobileLocalShadowAtlas),
+    float shadow = MobileFilterShadow(TEXTURE2D_SHADOW_ARGS(_MobileLocalShadowAtlas, sampler_MobileLocalShadowAtlas),
         projected.xyz / projected.w, MobileShadowTile(slice, (int)_MobileLocalShadowParams.y, _MobileLocalShadowParams.x), _MobileLocalShadowParams.x);
     return lerp(1, shadow, info.y * MobileShadowFade(positionWS));
 }

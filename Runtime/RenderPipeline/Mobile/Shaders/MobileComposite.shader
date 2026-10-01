@@ -9,14 +9,23 @@ Shader "Hidden/HDRP/Mobile/Composite"
         #pragma only_renderers d3d11 vulkan
         #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
         #include "MobilePrecision.hlsl"
+        #if defined(TONEMAPPING_ACES_APPROX) || defined(TONEMAPPING_ACES_FULL)
+        #define TONEMAPPING_ACES
+        #endif
+        #define TONEMAPPING_USE_FULL_ACES defined(TONEMAPPING_ACES_FULL)
         #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
         #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/PhysicalCamera.hlsl"
         #include "MobileExposure.hlsl"
+        #include "../../../PostProcessing/Shaders/BloomCommon.hlsl"
+        float4 _MobileBloomThreshold, _MobileBloomTint;
         float4 _MobileMeterParams, _MobileAdaptation, _MobileMeterSize;
         TEXTURE2D(_MobileSource); SAMPLER(sampler_LinearClamp);
         TEXTURE2D(_MobileBloom);
-        float4 _MobileSourceSize, _MobileAdjustments, _MobilePostOptions, _MobileColorFilter;
-        float _MobileHue, _MobileBloomIntensity;
+        TEXTURE2D(_MobileGradingLut);
+        float _MobileGradingEnabled;
+        float4 _MobileLutParams;
+        float4 _MobileSourceSize, _MobilePostOptions;
+        float _MobilePostExposure, _MobileBloomIntensity;
         TEXTURE2D(_MobileEditorDepth); SAMPLER(sampler_PointClamp);
         float _MobileEditorDepthFlip;
         struct Varyings { float4 positionCS : SV_POSITION; float2 uv : TEXCOORD0; };
@@ -30,15 +39,9 @@ Shader "Hidden/HDRP/Mobile/Composite"
         mobile_half3 Grade(float2 uv)
         {
             float3 color = SAMPLE_TEXTURE2D(_MobileSource, sampler_LinearClamp, uv).rgb;
-            color += SAMPLE_TEXTURE2D(_MobileBloom, sampler_LinearClamp, uv).rgb * _MobileBloomIntensity;
-            color *= _MobileAdjustments.x * _MobileColorFilter.rgb;
-            color = max(0, (color - 0.18) * _MobileAdjustments.y + 0.18);
-            float3 hsv = RgbToHsv(color);
-            hsv.x = frac(hsv.x + _MobileHue);
-            color = HsvToRgb(hsv);
-            color = max(0, lerp(Luminance(color).xxx, color, _MobileAdjustments.z));
-            if (_MobilePostOptions.y == 1) color = NeutralTonemap(color);
-            else if (_MobilePostOptions.y == 2) color = AcesTonemap(unity_to_ACES(color));
+            color += SAMPLE_TEXTURE2D(_MobileBloom, sampler_LinearClamp, uv).rgb * _MobileBloomIntensity * _MobileBloomTint.rgb;
+            if (_MobileGradingEnabled > 0)
+                color = ApplyLut2D(TEXTURE2D_ARGS(_MobileGradingLut, sampler_LinearClamp), saturate(LinearToLogC(color * _MobilePostExposure)), _MobileLutParams.xyz);
             return color;
         }
         mobile_half4 Composite(Varyings input) : SV_Target
@@ -80,7 +83,7 @@ Shader "Hidden/HDRP/Mobile/Composite"
         mobile_half4 Threshold(Varyings input) : SV_Target
         {
             float3 color = Filter(input.uv);
-            return mobile_half4(max(color - 1, 0), 1);
+            return mobile_half4(QuadraticThreshold(color, _MobileBloomThreshold.x, _MobileBloomThreshold.yzw), 1);
         }
         mobile_half4 Downsample(Varyings input) : SV_Target { return mobile_half4(Filter(input.uv), 1); }
         float2 Meter(Varyings input) : SV_Target
@@ -183,6 +186,27 @@ Shader "Hidden/HDRP/Mobile/Composite"
             #pragma fragment CopyReflection
             float4 CopyReflection(Varyings input) : SV_Target
             { return SAMPLE_TEXTURE2D_LOD(_MobileSource, sampler_LinearClamp, input.uv, 0); }
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "MobileColorGradingLut"
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment BuildColorGradingLut
+            #pragma multi_compile_local TONEMAPPING_NONE TONEMAPPING_NEUTRAL TONEMAPPING_ACES_APPROX TONEMAPPING_ACES_FULL TONEMAPPING_CUSTOM TONEMAPPING_EXTERNAL
+            #pragma multi_compile_local GRADE_IN_SRGB GRADE_IN_ACESCG
+            #define COLOR_GRADING_SAMPLER_DECLARED
+            #include "../../../PostProcessing/Shaders/ColorGradingCommon.hlsl"
+            float4 BuildColorGradingLut(Varyings input) : SV_Target
+            {
+                uint2 pixel = uint2(input.positionCS.xy);
+                uint size = (uint)_Size.x;
+                float3 lutColor = float3(pixel.x % size, pixel.y, pixel.x / size) * _Size.y;
+                float3 color = _Params.x > 0 ? ColorGrade(lutColor) : NeutralColorGrade(lutColor);
+                return float4(max(Tonemap(max(color, 0.0)), 0.0), 1.0);
+            }
             ENDHLSL
         }
     }

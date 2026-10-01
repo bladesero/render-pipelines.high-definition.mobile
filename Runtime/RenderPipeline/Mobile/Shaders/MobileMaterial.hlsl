@@ -1,6 +1,7 @@
 #ifndef HDRP_MOBILE_MATERIAL_INCLUDED
 #define HDRP_MOBILE_MATERIAL_INCLUDED
 #include "MobileInput.hlsl"
+#include "MobileInstanceLighting.hlsl"
 #include "MobileBRDF.hlsl"
 #include "MobileShadow.hlsl"
 #if defined(MOBILE_EXTENDED_GBUFFER) && !defined(MOBILE_EXTENDED_LIT)
@@ -43,7 +44,12 @@ MobileVaryings MobileVert(MobileAttributes input)
     UNITY_TRANSFER_INSTANCE_ID(input, output);
     output.positionWS = mul(UNITY_MATRIX_M, float4(input.positionOS, 1)).xyz;
     output.normalWS = SafeNormalize(mul(input.normalOS, (float3x3)UNITY_MATRIX_I_M));
+#if defined(MOBILE_INSTANCE_DATA)
+    // Managed instances reject negative determinants; no native per-draw sign is bound.
+    output.tangentWS = float4(SafeNormalize(mul((float3x3)UNITY_MATRIX_M, input.tangentOS.xyz)), input.tangentOS.w);
+#else
     output.tangentWS = float4(SafeNormalize(mul((float3x3)UNITY_MATRIX_M, input.tangentOS.xyz)), input.tangentOS.w * unity_WorldTransformParams.w);
+#endif
 #if defined(MOBILE_SHADOW)
     float3 shadowDirection = _MobileMainDirection.xyz;
     float shadowBias = _MobileShadowNormalBias;
@@ -69,6 +75,9 @@ MobileVaryings MobileVert(MobileAttributes input)
         output.positionCS.z = max(output.positionCS.z, output.positionCS.w * UNITY_NEAR_CLIP_VALUE);
     #endif
 #endif
+    // Player shadow batching can select the opaque keyword variant for a cutout
+    // material. Shadow coverage therefore uses the material switch and needs UVs
+    // in both variants.
     output.uv = input.uv;
     output.detailUV = input.lightmapUV;
     output.lightmapUV = input.lightmapUV * unity_LightmapST.xy + unity_LightmapST.zw;
@@ -83,7 +92,7 @@ mobile_half4 MobileBase(float2 uv)
     mobile_half4 color = SAMPLE_TEXTURE2D(_UnlitColorMap, sampler_UnlitColorMap, uv * _UnlitColorMap_ST.xy + _UnlitColorMap_ST.zw) * _UnlitColor;
 #endif
     color.a = lerp(_AlphaRemapMin, _AlphaRemapMax, color.a);
-#if defined(_ALPHATEST_ON)
+#if defined(_ALPHATEST_ON) || defined(MOBILE_SHADOW)
     float cutoff = _AlphaCutoff;
     #if defined(MOBILE_SHADOW) && defined(MOBILE_LIT)
         cutoff = _UseShadowThreshold > 0.5 ? _AlphaCutoffShadow : cutoff;
@@ -139,8 +148,16 @@ float MobileEnvironmentProbeWeight(float3 position, float4 boxMin, float4 boxMax
 
 float3 MobileSampleReflection(float3 positionWS, float3 reflected, float perceptualRoughness)
 {
+    if (_MobileReflectionCapture > 0 && _MobileCaptureLighting.y < 0.5) return 0;
     if (_MobileReflectionHasHDRPProbes > 0)
         return MobileSampleHDRPReflection(positionWS, reflected, perceptualRoughness);
+#if defined(MOBILE_INSTANCE_DATA)
+    if (_MobileEnvironmentParams.x > 0)
+        return SAMPLE_TEXTURECUBE_LOD(_MobileEnvironmentReflection, sampler_MobileEnvironmentReflection,
+            reflected, perceptualRoughness * _MobileEnvironmentParams.z).rgb * _MobileEnvironmentParams.w;
+    return DecodeHDREnvironment(SAMPLE_TEXTURECUBE_LOD(_MobileInstanceDefaultReflection,
+        sampler_MobileInstanceDefaultReflection, reflected, PerceptualRoughnessToMipmapLevel(perceptualRoughness)), _MobileInstanceDefaultReflectionHDR) * _MobileIndirectMultiplier.z;
+#else
     float mip = PerceptualRoughnessToMipmapLevel(perceptualRoughness);
     float3 direction0 = MobileBoxDirection(reflected, positionWS, unity_SpecCube0_ProbePosition, unity_SpecCube0_BoxMin, unity_SpecCube0_BoxMax);
     mobile_half4 env = SAMPLE_TEXTURECUBE_LOD(unity_SpecCube0, samplerunity_SpecCube0, direction0, mip);
@@ -169,6 +186,7 @@ float3 MobileSampleReflection(float3 positionWS, float3 reflected, float percept
     }
     else indirectSpecular *= _MobileIndirectMultiplier.z;
     return indirectSpecular;
+#endif
 }
 
 #include "MobileGBuffer.hlsl"
@@ -185,6 +203,11 @@ mobile_half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_
     // Shared editor passes use Cull Off for desktop selection. Match the mobile
     // single-sided surface without changing desktop ShaderLab render state.
     if (!IS_FRONT_VFACE(frontFace, true, false)) discard;
+#endif
+#if defined(MOBILE_SHADOW)
+    // Do not sample the base texture for opaque casters. Cutout coverage must
+    // remain correct even when the Player selects the non-alpha keyword variant.
+    if (_AlphaCutoffEnable <= 0.0) return 0;
 #endif
     mobile_half4 color = MobileBase(input.uv);
 #if defined(MOBILE_SHADOW)
@@ -339,10 +362,19 @@ mobile_half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_
             n = SafeNormalize(lerp(n, grainNormal, abs(extended.anisotropy) * saturate(1.5 * sqrt(brdf.perceptualRoughness))));
         }
 #endif
+        MobileBRDFData indirectBRDF = brdf;
+        if (_MobileReflectionCapture > 0 && _MobileCaptureLighting.z > 0)
+        {
+            // Desktop Lit.GetDiffuseOrDefaultColor approximates metallic indirect
+            // transport while baking, instead of baking view-dependent reflections.
+            float metallicWeight = saturate((Max3(brdf.specular.r, brdf.specular.g, brdf.specular.b) - .2) / .25);
+            indirectBRDF.diffuse = lerp(brdf.diffuse, brdf.specular, metallicWeight);
+        }
+        mobile_half specularHighlights = _MobileSpecularHighlights * (_MobileReflectionCapture > 0 ? _MobileCaptureLighting.x : 1);
         float3 indirectSpecular = MobileSampleReflection(input.positionWS, reflect(-v, n), brdf.perceptualRoughness);
-        float3 result = MobileEnvironmentBRDF(brdf, MobileBaked(input.lightmapUV, n) * _MobileIndirectMultiplier.x, indirectSpecular * _MobileIndirectMultiplier.y, dot(n, v), ao);
+        float3 result = MobileEnvironmentBRDF(indirectBRDF, MobileBaked(input.lightmapUV, n) * _MobileIndirectMultiplier.x, indirectSpecular * _MobileIndirectMultiplier.y, dot(n, v), ao);
 #if defined(MOBILE_EXTENDED_LIT)
-        float3 diffuseIBL = MobileBaked(input.lightmapUV, n) * _MobileIndirectMultiplier.x * ao * brdf.diffuse;
+        float3 diffuseIBL = MobileBaked(input.lightmapUV, n) * _MobileIndirectMultiplier.x * ao * indirectBRDF.diffuse;
 #endif
         n = shadingNormal;
 #if defined(MOBILE_EXTENDED_LIT)
@@ -368,28 +400,29 @@ mobile_half4 MobileFrag(MobileVaryings input, FRONT_FACE_TYPE frontFace : FRONT_
         #if !defined(MOBILE_GBUFFER)
 #if defined(MOBILE_EXTENDED_LIT)
         float3 directDiffuse, directSpecular;
-        MobileEvaluateExtendedDirect(brdf, extended, (int)_MaterialID, n, v, _MobileMainDirection.xyz, _MobileSpecularHighlights, directDiffuse, directSpecular,
+        MobileEvaluateExtendedDirect(brdf, extended, (int)_MaterialID, n, v, _MobileMainDirection.xyz, specularHighlights, directDiffuse, directSpecular,
             input.positionWS, true, _MobileReceiveShadows > 0);
-        result += (directDiffuse + directSpecular) * _MobileMainColor.rgb * MobileExtendedMainShadow(extended, (int)_MaterialID, n, input.positionWS, _MobileReceiveShadows > 0);
+        result += (directDiffuse + directSpecular) * MobileInstanceMainColor() * MobileExtendedMainShadow(extended, (int)_MaterialID, n, input.positionWS, _MobileReceiveShadows > 0);
 #else
-        result += MobileDirectBRDF(brdf, n, v, _MobileMainDirection.xyz, _MobileSpecularHighlights)
-            * _MobileMainColor.rgb * (_MobileReceiveShadows > 0 ? MobileShadow(input.positionWS) : 1);
+        result += MobileDirectBRDF(brdf, n, v, _MobileMainDirection.xyz, specularHighlights)
+            * MobileInstanceMainColor() * (_MobileReceiveShadows > 0 ? MobileShadow(input.positionWS) : 1);
 #endif
-        uint count = min((uint)unity_LightData.y, (uint)_MobileLightsPerObject);
+        uint count = MobileInstanceLightCount();
         for (uint i = 0; i < count; i++)
         {
-            uint index = (uint)unity_LightIndices[0][i];
+            int index = MobileInstanceLightIndex(i);
+            if (index < 0) continue;
             float3 delta = _MobileLightPositions[index].xyz - input.positionWS;
             float distanceSquared = max(dot(delta, delta), HALF_MIN);
             mobile_half3 l = delta * rsqrt(distanceSquared);
             float rangeFade = saturate(1 - pow(distanceSquared * _MobileLightPositions[index].w, 2));
             float spot = saturate(dot(l, _MobileLightSpots[index].xyz) * _MobileLightAttenuations[index].x + _MobileLightAttenuations[index].y);
 #if defined(MOBILE_EXTENDED_LIT)
-            MobileEvaluateExtendedDirect(brdf, extended, (int)_MaterialID, n, v, l, _MobileSpecularHighlights, directDiffuse, directSpecular,
+            MobileEvaluateExtendedDirect(brdf, extended, (int)_MaterialID, n, v, l, specularHighlights, directDiffuse, directSpecular,
                 input.positionWS, false, _MobileReceiveShadows > 0);
             result += (directDiffuse + directSpecular) * _MobileLightColors[index].rgb
 #else
-            result += MobileDirectBRDF(brdf, n, v, l, _MobileSpecularHighlights) * _MobileLightColors[index].rgb
+            result += MobileDirectBRDF(brdf, n, v, l, specularHighlights) * _MobileLightColors[index].rgb
 #endif
                 * (rangeFade * rangeFade * spot * spot / distanceSquared)
                 * (_MobileReceiveShadows > 0 ? MobileLocalShadow(input.positionWS, index) : 1);

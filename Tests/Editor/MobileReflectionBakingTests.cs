@@ -10,6 +10,66 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
 {
     public partial class MobileImageTests
     {
+        [TestCase(false)]
+        [TestCase(true)]
+        public void MobileReflectionBakeDoesNotInjectRuntimeSkyIntoDarkSurfaces(bool lightmapped)
+        {
+            m_Sun.enabled = false;
+            m_Asset.mobileSettings.environmentLighting = true;
+            m_Asset.mobileSettings.environmentDiffuseSource = MobileEnvironmentDiffuseSource.RuntimeSky;
+            var profile = CameraProfile();
+            profile.Add<VisualEnvironment>().skyType.Override((int)SkyType.Gradient);
+            var sky = profile.Add<GradientSky>();
+            sky.top.Override(Color.white * 4096); sky.middle.Override(Color.white * 4096); sky.bottom.Override(Color.white * 4096);
+            var probe = AtlasProbe(null, ProbeSettings.Mode.Baked);
+            probe.settingsRaw.cameraSettings.culling.cullingMask = 1 << 30;
+            probe.settingsRaw.cameraSettings.volumes.layerMask = 1 << 29;
+            var material = Material(true, Color.white);
+            material.SetFloat("_Smoothness", .9f);
+            var card = Quad(material, 2);
+            GameObjectUtility.SetStaticEditorFlags(card.gameObject, StaticEditorFlags.ReflectionProbeStatic);
+            var previous = LightmapSettings.lightmaps;
+            var previousMode = LightmapSettings.lightmapsMode;
+            try
+            {
+                LightmapSettings.lightmapsMode = LightmapsMode.NonDirectional;
+                LightmapSettings.lightmaps = new[] { new LightmapData { lightmapColor = Solid(Color.black) } };
+                card.lightmapIndex = lightmapped ? 0 : -1;
+                card.lightmapScaleOffset = new Vector4(1, 1, 0, 0);
+                var capture = Own(HDRenderUtilities.CreateReflectionProbeRenderTarget(32, UnityEngine.Experimental.Rendering.GraphicsFormat.R16G16B16A16_SFloat));
+                MobileReflectionBaking.Render(probe, capture, out _, out _);
+                Assert.Less(BakedFacePixel(capture, (int)CubemapFace.PositiveZ).maxColorComponent, .01f,
+                    "Probe baking must not add unoccluded runtime sky diffuse or sky specular to a dark surface.");
+                if (lightmapped)
+                {
+                    material.SetFloat("_Metallic", 1);
+                    LightmapSettings.lightmaps = new[] { new LightmapData { lightmapColor = Solid(Color.red * 4) } };
+                    MobileReflectionBaking.Render(probe, capture, out _, out _);
+                    var pixel = BakedFacePixel(capture, (int)CubemapFace.PositiveZ);
+                    Assert.That(pixel.r, Is.EqualTo(4).Within(.08f), "ReplaceDiffuseForIndirect must preserve baked GI on metals.");
+                    Assert.Less(pixel.g, .01f);
+                    LightmapSettings.lightmaps = new[] { new LightmapData { lightmapColor = Solid(Color.black) } };
+                    m_Sun.enabled = true;
+                    MobileReflectionBaking.Render(probe, capture, out _, out _);
+                    Assert.Less(BakedFacePixel(capture, (int)CubemapFace.PositiveZ).maxColorComponent, .01f,
+                        "Default baked probe settings must exclude direct specular highlights.");
+                    probe.settingsRaw.cameraSettings.customRenderingSettings = true;
+                    probe.settingsRaw.cameraSettings.renderingPathCustomFrameSettings.SetEnabled(FrameSettingsField.DirectSpecularLighting, true);
+                    probe.settingsRaw.cameraSettings.renderingPathCustomFrameSettingsOverrideMask.mask[(uint)FrameSettingsField.DirectSpecularLighting] = true;
+                    MobileReflectionBaking.Render(probe, capture, out _, out _);
+                    Assert.Greater(BakedFacePixel(capture, (int)CubemapFace.PositiveZ).maxColorComponent, .1f,
+                        "An explicit direct specular override must still work.");
+                    m_Sun.enabled = false;
+                    probe.settingsRaw.cameraSettings.renderingPathCustomFrameSettings.SetEnabled(FrameSettingsField.SkyReflection, true);
+                    probe.settingsRaw.cameraSettings.renderingPathCustomFrameSettingsOverrideMask.mask[(uint)FrameSettingsField.SkyReflection] = true;
+                    MobileReflectionBaking.Render(probe, capture, out _, out _);
+                    Assert.Greater(BakedFacePixel(capture, (int)CubemapFace.PositiveZ).maxColorComponent, 10,
+                        "An explicit sky reflection override must still work.");
+                }
+            }
+            finally { card.lightmapIndex = -1; LightmapSettings.lightmaps = previous; LightmapSettings.lightmapsMode = previousMode; }
+        }
+
         Color BakedFacePixel(Texture cube, int face)
         {
             var output = RenderTexture.GetTemporary(cube.width, cube.height, 0, RenderTextureFormat.ARGBHalf);

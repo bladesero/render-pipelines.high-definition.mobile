@@ -8,6 +8,8 @@ namespace UnityEngine.Rendering.HighDefinition
 
     /// <summary>Opaque lighting path. Existing assets retain Forward.</summary>
     public enum MobileRenderingPath { Forward = 0, Deferred = 1 }
+    /// <summary>Opt-in renderer submission for MobileInstanceGroup components.</summary>
+    public enum MobileInstanceMode { Disabled = 0, CpuInstanced = 1 }
     /// <summary>Compact deferred attachment execution.</summary>
     public enum MobileDeferredExecution { Auto = 0, NativeRenderPass = 1, Sampled = 2 }
 
@@ -23,6 +25,13 @@ namespace UnityEngine.Rendering.HighDefinition
     public sealed class MobileRenderSettings
     {
         public MobileRenderingPath renderingPath = MobileRenderingPath.Forward;
+        public MobileInstanceMode instanceMode = MobileInstanceMode.Disabled;
+        [Min(0), Tooltip("Maximum instance distance. Zero uses the camera far plane.")]
+        public float instanceDrawDistance = 100;
+        [Min(0), Tooltip("Maximum native caster distance for managed instances. Zero uses Mobile shadow distance.")]
+        public float instanceShadowDistance;
+        [Range(1, 128), Tooltip("Instance payload is bounded to 128 entries per draw, including matrices and lighting.")]
+        public int instanceBatchSize = 128;
         public MobileDeferredExecution deferredExecution = MobileDeferredExecution.Auto;
         [Tooltip("Allow one extra RGBA8 Fresnel/Coat attachment for deferred SpecularColor and clear coat. Other Lit types use Forward, without screen-space SSS.")]
         public bool extendedLitMaterials;

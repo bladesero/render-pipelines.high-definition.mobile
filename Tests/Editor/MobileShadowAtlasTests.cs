@@ -7,6 +7,64 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
 {
     public partial class MobileImageTests
     {
+        MobileRenderPipelineBackend ShadowBackend => (MobileRenderPipelineBackend)typeof(HDRenderPipeline)
+            .GetField("m_MobileBackend", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            .GetValue(RenderPipelineManager.currentPipeline);
+
+        [TestCase(false, false)] [TestCase(true, false)]
+        [TestCase(false, true)] [TestCase(true, true)]
+        public void CachedLocalShadowRedrawsOnlyAfterLightMoves(bool deferred, bool point)
+        {
+            if (deferred) UseDeferred();
+            m_Asset.mobileSettings.localShadowAtlasSize = 256;
+            m_Sun.enabled = false;
+            ShadowReceiver(Vector3.forward, out _);
+            var light = MakeObject("Cached spot").AddComponent<Light>();
+            light.type = point ? LightType.Point : LightType.Spot; light.range = 10; light.spotAngle = 90;
+            light.transform.SetPositionAndRotation(new Vector3(0, 0, -2), Quaternion.identity);
+            light.cullingMask = 1 << 30; light.intensity = 4; light.shadows = LightShadows.Hard;
+            var data = light.gameObject.AddComponent<HDAdditionalLightData>();
+            data.shadowUpdateMode = ShadowUpdateMode.OnEnable;
+            data.updateUponLightMovement = true;
+            var first = Center(Capture());
+            int initial = ShadowBackend.localShadowDrawCount;
+            Assert.Greater(initial, 0);
+            var before = Center(Capture());
+            Assert.AreEqual(initial, ShadowBackend.localShadowDrawCount, "Static light should reuse its depth atlas.");
+            Assert.That(before.r, Is.EqualTo(first.r).Within(0.002f), "Cached shadow must retain the rendered result.");
+            light.transform.position += Vector3.right * 0.5f;
+            Capture();
+            Assert.AreEqual(initial + 1, ShadowBackend.localShadowDrawCount, "Moving the spot light must redraw its shadow.");
+            data.shadowUpdateMode = ShadowUpdateMode.OnDemand;
+            data.RequestShadowMapRendering();
+            Capture();
+            Assert.AreEqual(initial + 2, ShadowBackend.localShadowDrawCount, "An on-demand request must invalidate Mobile's cache.");
+        }
+
+        [TestCase(false)] [TestCase(true)]
+        public void CachedDirectionalShadowTracksCameraAndLight(bool deferred)
+        {
+            if (deferred) UseDeferred();
+            m_Asset.mobileSettings.shadowAtlasSize = 256;
+            m_Asset.mobileSettings.cascadeCount = 1;
+            ShadowReceiver(Vector3.forward, out _);
+            m_Sun.shadows = LightShadows.Hard;
+            var data = m_Sun.gameObject.AddComponent<HDAdditionalLightData>();
+            data.shadowUpdateMode = ShadowUpdateMode.OnEnable;
+            data.updateUponLightMovement = true;
+            Capture();
+            int initial = ShadowBackend.mainShadowDrawCount;
+            Assert.Greater(initial, 0);
+            Capture();
+            Assert.AreEqual(initial, ShadowBackend.mainShadowDrawCount, "Static cascade should reuse its depth atlas.");
+            m_Sun.transform.rotation = Quaternion.Euler(0, 20, 0);
+            Capture();
+            Assert.AreEqual(initial + 1, ShadowBackend.mainShadowDrawCount, "Rotating the sun must redraw the cascade.");
+            m_Camera.transform.position += Vector3.right * 0.5f;
+            Capture();
+            Assert.AreEqual(initial + 2, ShadowBackend.mainShadowDrawCount, "Camera-relative cascades must follow the camera.");
+        }
+
         [TestCase(4)] [TestCase(6)]
         public void NativeVulkanLocalShadowAtlases(int face)
         {

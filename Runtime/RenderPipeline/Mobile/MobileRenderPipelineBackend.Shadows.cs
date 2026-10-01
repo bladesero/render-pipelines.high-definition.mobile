@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Experimental.Rendering.RenderGraphModule;
 
 namespace UnityEngine.Rendering.HighDefinition
@@ -15,6 +17,147 @@ namespace UnityEngine.Rendering.HighDefinition
         readonly ShadowSplitData[] m_LocalShadowSplits = new ShadowSplitData[MaxLocalShadowSlices];
         readonly int[] m_LocalShadowLights = new int[MaxLocalShadowSlices];
         int m_LocalLightCount, m_LocalShadowCount, m_LocalShadowGrid = 1;
+
+        // Imported depth atlases survive RenderGraph frames. Keep one pair per camera:
+        // directional cascades depend on the camera, while local shadow slots depend
+        // on the visible-light order and atlas layout.
+        sealed class ShadowCache
+        {
+            internal RTHandle mainAtlas, localAtlas;
+            internal int mainKey, localKey, mainSize, localSize;
+            internal bool mainValid, localValid, mainCacheable, localCacheable;
+        }
+
+        readonly Dictionary<Camera, ShadowCache> m_ShadowCaches = new Dictionary<Camera, ShadowCache>();
+        readonly List<Camera> m_ExpiredShadowCameras = new List<Camera>();
+        internal int mainShadowDrawCount, localShadowDrawCount;
+
+        ShadowCache GetShadowCache(Camera camera)
+        {
+            if (!m_ShadowCaches.TryGetValue(camera, out var cache))
+                m_ShadowCaches.Add(camera, cache = new ShadowCache());
+            return cache;
+        }
+
+        static RTHandle EnsureShadowAtlas(ref RTHandle atlas, int size, string name)
+        {
+            if (atlas?.rt != null && atlas.rt.width == size && atlas.rt.IsCreated()) return atlas;
+            atlas?.Release();
+            atlas = RTHandles.Alloc(size, size, depthBufferBits: DepthBits.Depth16,
+                isShadowMap: true, filterMode: FilterMode.Bilinear, name: name);
+            if (atlas.rt == null || !atlas.rt.IsCreated())
+            {
+                atlas.Release(); atlas = null;
+                throw new InvalidOperationException("Could not allocate " + name + ".");
+            }
+            return atlas;
+        }
+
+        static int MixShadowKey(int key, int value) => unchecked(key * 31 + value);
+        static int MixShadowKey(int key, float value) => MixShadowKey(key, value.GetHashCode());
+        static int MixShadowKey(int key, Vector3 value) => MixShadowKey(key, value.GetHashCode());
+        static int MixShadowKey(int key, Quaternion value) => MixShadowKey(key, value.GetHashCode());
+
+        static bool CacheLightShadows(Light light, out HDAdditionalLightData data)
+        {
+            light.TryGetComponent(out data);
+            return data != null && data.shadowUpdateMode != ShadowUpdateMode.EveryFrame && data.updateUponLightMovement;
+        }
+
+        static int LightShadowKey(int key, Light light, HDAdditionalLightData data)
+        {
+            key = MixShadowKey(key, light.GetInstanceID());
+            key = MixShadowKey(key, light.transform.position);
+            key = MixShadowKey(key, light.transform.rotation);
+            key = MixShadowKey(key, light.range);
+            key = MixShadowKey(key, light.spotAngle);
+            key = MixShadowKey(key, light.shadowNearPlane);
+            key = MixShadowKey(key, light.shadowBias);
+            key = MixShadowKey(key, light.shadowNormalBias);
+            key = MixShadowKey(key, (int)light.shadows);
+            return MixShadowKey(key, data != null ? unchecked((int)data.mobileShadowRequestVersion) : 0);
+        }
+
+        bool NeedsMainShadowUpdate(ShadowCache cache, CullingResults culling, bool enabled, int size)
+        {
+            int key = MixShadowKey(17, size);
+            key = MixShadowKey(key, enabled ? 1 : 0);
+            bool cacheable = enabled;
+            if (enabled)
+            {
+                var light = culling.visibleLights[m_MainLight].light;
+                cacheable = CacheLightShadows(light, out var data);
+                key = LightShadowKey(key, light, data);
+                key = MixShadowKey(key, m_ShadowSettings.cascadeCount);
+                key = MixShadowKey(key, m_ShadowSettings.cascadeSplit);
+                key = MixShadowKey(key, m_ShadowSettings.cascadeBlend);
+                key = MixShadowKey(key, m_ShadowSettings.shadowNormalBias);
+                // A directional atlas is camera-relative. Reuse only while the
+                // cascade projections remain identical; otherwise coverage drifts.
+                for (int i = 0; i < m_ShadowSettings.cascadeCount; i++)
+                {
+                    key = MixShadowKey(key, m_ShadowViews[i].GetHashCode());
+                    key = MixShadowKey(key, m_ShadowProjections[i].GetHashCode());
+                }
+            }
+            bool update = !cache.mainValid || cache.mainSize != size || cache.mainKey != key || !cacheable;
+            cache.mainValid = true; cache.mainSize = size; cache.mainKey = key;
+            cache.mainCacheable = cacheable;
+            return update;
+        }
+
+        bool NeedsLocalShadowUpdate(ShadowCache cache, CullingResults culling, int size)
+        {
+            int key = MixShadowKey(17, size);
+            key = MixShadowKey(key, m_LocalShadowGrid);
+            key = MixShadowKey(key, m_LocalShadowCount);
+            key = MixShadowKey(key, m_ShadowSettings.shadowFilterSize);
+            bool cacheable = m_LocalShadowCount > 0;
+            for (int i = 0; i < m_LocalLightCount; i++)
+            {
+                var info = m_LocalShadowInfo[i];
+                if (info.y <= 0) continue;
+                var light = culling.visibleLights[m_LocalVisibleIndices[i]].light;
+                cacheable &= CacheLightShadows(light, out var data);
+                key = MixShadowKey(key, (int)info.x);
+                key = MixShadowKey(key, (int)info.z);
+                key = LightShadowKey(key, light, data);
+                for (int face = 0; face < (int)info.z; face++)
+                {
+                    int slice = (int)info.x + face;
+                    key = MixShadowKey(key, m_LocalShadowViews[slice].GetHashCode());
+                    key = MixShadowKey(key, m_LocalShadowProjections[slice].GetHashCode());
+                }
+            }
+            bool update = !cache.localValid || cache.localSize != size || cache.localKey != key || !cacheable;
+            cache.localValid = true; cache.localSize = size; cache.localKey = key;
+            cache.localCacheable = cacheable;
+            return update;
+        }
+
+        void PruneShadowCaches()
+        {
+            m_ExpiredShadowCameras.Clear();
+            foreach (var entry in m_ShadowCaches)
+                if (entry.Key == null || !entry.Key.gameObject.activeInHierarchy)
+                    m_ExpiredShadowCameras.Add(entry.Key);
+            foreach (var camera in m_ExpiredShadowCameras)
+            {
+                var cache = m_ShadowCaches[camera];
+                cache.mainAtlas?.Release(); cache.localAtlas?.Release();
+                m_ShadowCaches.Remove(camera);
+            }
+            m_ExpiredShadowCameras.Clear();
+        }
+
+        void DisposeShadowCaches()
+        {
+            foreach (var cache in m_ShadowCaches.Values)
+            {
+                cache.mainAtlas?.Release(); cache.localAtlas?.Release();
+            }
+            m_ShadowCaches.Clear();
+        }
 
         internal static int ShadowAtlasSize(int requested) => Mathf.NextPowerOfTwo(Mathf.Clamp(requested, 256, 4096));
         internal static int CascadeGrid(int count) => count <= 1 ? 1 : count <= 4 ? 2 : 3;
@@ -131,6 +274,7 @@ namespace UnityEngine.Rendering.HighDefinition
 
         void RecordLocalShadows(Camera camera, CullingResults culling, TextureHandle atlas, int size)
         {
+            if (m_LocalShadowCount > 0) localShadowDrawCount++;
             using (var builder = m_Graph.AddRenderPass<LocalShadowData>("Mobile Local Shadows", out var data))
             {
                 data.camera = camera; data.culling = culling; data.grid = m_LocalShadowGrid; data.size = size; data.count = m_LocalShadowCount;
@@ -143,6 +287,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 builder.UseDepthBuffer(atlas, DepthAccess.Write);
                 builder.SetRenderFunc((LocalShadowData pass, RenderGraphContext ctx) =>
                 {
+                    ctx.cmd.ClearRenderTarget(true, false, Color.clear);
                     if (pass.count == 0) return;
                     int tile = pass.size / pass.grid;
                     ctx.cmd.EnableShaderKeyword(MobileKeyword);

@@ -3,10 +3,20 @@
 
 // Explicit minimum-precision types for Mobile arithmetic only. Do not redefine
 // half/float/real or change shared Core library functions and constant buffers.
+#if defined(MOBILE_SHADOW)
+// Caster coverage (including alpha remapping/clipping) must stay FP32 alongside
+// its world position, normal bias and clip position. Only Mobile caster variants
+// opt out of minimum precision; surface lighting retains its FP16 arithmetic.
+typedef float mobile_half;
+typedef float2 mobile_half2;
+typedef float3 mobile_half3;
+typedef float4 mobile_half4;
+#else
 typedef min16float mobile_half;
 typedef min16float2 mobile_half2;
 typedef min16float3 mobile_half3;
 typedef min16float4 mobile_half4;
+#endif
 
 mobile_half3 MobileNormalizeSurface(mobile_half3 direction)
 {

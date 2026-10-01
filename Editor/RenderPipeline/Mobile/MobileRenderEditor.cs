@@ -21,7 +21,8 @@ namespace UnityEditor.Rendering.HighDefinition
             Rendering = 1 << 0, Lighting = 1 << 1, PostProcessing = 1 << 2,
             Resolution = 1 << 3, Sky = 1 << 4, Environment = 1 << 5,
             Fog = 1 << 6, Shadows = 1 << 7, DirectionalShadows = 1 << 8,
-            Lights = 1 << 9, Exposure = 1 << 10, Resources = 1 << 11, Diagnostics = 1 << 12
+            Lights = 1 << 9, Exposure = 1 << 10, Resources = 1 << 11, Diagnostics = 1 << 12,
+            Batching = 1 << 13
         }
 
         // Keep Mobile's foldout preferences separate from Desktop's.
@@ -30,7 +31,8 @@ namespace UnityEditor.Rendering.HighDefinition
         const FoldoutOption SubFoldout = FoldoutOption.Indent | FoldoutOption.SubFoldout;
         static readonly CED.IDrawer k_Inspector = CED.Group(
             CED.FoldoutGroup(Styles.renderingSectionTitle, Expandable.Rendering, k_ExpandedState,
-                CED.FoldoutGroup("Resolution", Expandable.Resolution, k_ExpandedState, SubFoldout, DrawResolution)),
+                CED.FoldoutGroup("Resolution", Expandable.Resolution, k_ExpandedState, SubFoldout, DrawResolution),
+                CED.FoldoutGroup("Batching", Expandable.Batching, k_ExpandedState, SubFoldout, DrawBatching)),
             CED.FoldoutGroup(Styles.lightingSectionTitle, Expandable.Lighting, k_ExpandedState,
                 CED.FoldoutGroup(Styles.skySubTitle, Expandable.Sky, k_ExpandedState, SubFoldout, DrawSky),
                 CED.FoldoutGroup("Environment Lighting", Expandable.Environment, k_ExpandedState, SubFoldout, DrawEnvironment),
@@ -80,6 +82,21 @@ namespace UnityEditor.Rendering.HighDefinition
                 Field(serialized, "deferredExecution", "Deferred Execution", "Auto uses stored GBuffer textures on desktop and native subpasses on Android Vulkan. D3D11/D3D12 require Auto or Sampled. Forced Native is reserved for Vulkan validation.");
             Field(serialized, "fixed1080p", "Fixed 1080p Resolution", "Use a 1920 x 1080 base resolution for Game cameras targeting the display. Preview cameras and RenderTextures retain their dimensions. Render Scale applies in both modes.");
             Field(serialized, "renderScale", "Render Scale", "Scale the base width and height before upscaling. This is a fixed scale, not Desktop dynamic resolution.");
+        }
+
+        static void DrawBatching(SerializedObject serialized, Editor owner)
+        {
+            // Reuse HDRP's serialized setting: no second conflicting Mobile flag.
+            EditorGUILayout.PropertyField(serialized.FindProperty("enableSRPBatcher"), EditorGUIUtility.TrTextContent("SRP Batcher",
+                "Reduce CPU render-state setup for compatible native Mesh/SkinnedMeshRenderers. Uses the same HDRP asset setting as Desktop and takes effect on the next camera render. Explicit Mobile Instance Groups work with either setting."));
+            Field(serialized, "instanceMode", "Instance Submission", "Opt-in CPU cell/frustum/distance/LOD culling for Mobile Instance Groups. Native renderers retain independent shadow culling.");
+            if (Setting(serialized, "instanceMode").enumValueIndex != 0)
+            {
+                Field(serialized, "instanceDrawDistance", "Instance Draw Distance", "Bounds distance; zero uses the camera far plane. Groups can override this.");
+                Field(serialized, "instanceShadowDistance", "Instance Shadow Distance", "Zero follows Mobile shadow distance. Independent of main-view visibility.");
+                Field(serialized, "instanceBatchSize", "Instances per Draw", "1–128, including per-instance lighting payload. Profile smaller batches on target hardware.");
+            }
+            EditorGUILayout.HelpBox("Native renderers use SRP Batcher when compatible. Explicit instance groups use GPU instancing. Renderer MaterialPropertyBlocks prevent SRP batching; they retain normal rendering.", MessageType.Info);
         }
 
         static void DrawLights(SerializedObject serialized, Editor owner)
@@ -261,8 +278,8 @@ namespace UnityEditor.Rendering.HighDefinition
                         }
                         else if (component is Tonemapping tone)
                         {
-                            if (tone.mode.value == TonemappingMode.Custom || tone.mode.value == TonemappingMode.External)
-                                issues.Add(scene.path + "/" + volume.name + ": Custom/External tonemapping is unsupported.");
+                            if (tone.mode.value == TonemappingMode.External && !tone.ValidateLUT())
+                                issues.Add(scene.path + "/" + volume.name + ": External tonemapping requires a cubic LUT matching the HDRP asset LUT size.");
                         }
                         else if (component is HDRISky hdri)
                         {
@@ -280,7 +297,10 @@ namespace UnityEditor.Rendering.HighDefinition
                         {
                             if (environment.cloudType.value != 0) issues.Add(scene.path + "/" + volume.name + ": Mobile sky fallback does not render clouds.");
                         }
-                        else if (!(component is ColorAdjustments) && !(component is Bloom) && !(component is MobilePostProcessing) && !(component is GradientSky) && !(component is DiffusionProfileList))
+                        else if (!(component is ColorAdjustments) && !(component is WhiteBalance) && !(component is ChannelMixer)
+                            && !(component is LiftGammaGain) && !(component is ShadowsMidtonesHighlights) && !(component is SplitToning)
+                            && !(component is ColorCurves) && !(component is Bloom) && !(component is MobilePostProcessing)
+                            && !(component is GradientSky) && !(component is DiffusionProfileList))
                             issues.Add(scene.path + "/" + volume.name + ": volume override " + component.GetType().Name + " is ignored by Mobile.");
                     }
                 }

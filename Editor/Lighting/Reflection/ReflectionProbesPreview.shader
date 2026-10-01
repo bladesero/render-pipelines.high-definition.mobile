@@ -92,7 +92,7 @@ Shader "Hidden/Debug/ReflectionProbePreview"
             float _MobileExposure, _MobileAutomaticExposure;
             float4x4 _MobileProbePreviewVP;
             float3 _MobileProbePreviewCamera;
-            float _MobileProbePreviewIntensity, _MipLevel, _Exposure;
+            float _MipLevel, _Exposure;
             struct MobilePreviewVaryings
             {
                 float4 positionCS : SV_POSITION;
@@ -112,7 +112,7 @@ Shader "Hidden/Debug/ReflectionProbePreview"
                 float3 reflected = reflect(normalize(input.positionWS - _MobileProbePreviewCamera), normalize(input.normalWS));
                 float exposure = _MobileAutomaticExposure > 0
                     ? tex2Dlod(_MobileExposureTexture, float4(.5, .5, 0, 0)).r : _MobileExposure;
-                return float4(texCUBElod(_Cubemap, float4(reflected, _MipLevel)).rgb * (_MobileProbePreviewIntensity * exp2(_Exposure) * exposure), 1);
+                return float4(texCUBElod(_Cubemap, float4(reflected, _MipLevel)).rgb * (exp2(_Exposure) * exposure), 1);
             }
             ENDCG
         }

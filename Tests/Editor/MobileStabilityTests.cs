@@ -37,6 +37,7 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         public void FailedReplacementConstructionReleasesPartialResources(string checkpoint)
         {
             var asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
+            GraphicsSettings.defaultRenderingLayerMask = 42u;
             var owner = new MobileRenderPipelineBackend(asset);
             try
             {
@@ -48,8 +49,10 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
                 Assert.AreEqual(graphs, RenderGraph.GetRegisteredRenderGraphs().Count);
                 Assert.IsTrue(Shader.IsKeywordEnabled("HDRP_MOBILE_RENDERER"));
                 Assert.AreEqual("HDRenderPipeline", Shader.globalRenderPipeline);
+                Assert.AreEqual((uint)ShaderVariablesGlobal.DefaultRenderingLayerMask, GraphicsSettings.defaultRenderingLayerMask);
             }
             finally { owner.Dispose(); Object.DestroyImmediate(asset); }
+            Assert.AreEqual(42u, GraphicsSettings.defaultRenderingLayerMask);
         }
 
         [Test]

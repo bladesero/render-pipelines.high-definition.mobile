@@ -45,6 +45,8 @@ Material:
   - TransparentBackface
   - RayTracingPrepass
   - ForwardEmissiveForDeferred
+  - MobileForwardOnly
+  - MobileForwardOnlyExtended
   m_LockedProperties: 
   m_SavedProperties:
     serializedVersion: 3
@@ -320,7 +322,7 @@ Material:
     - _SSSAndTransmissionType: 0
     - _ShiverDirectionality: 0.5
     - _ShiverDrag: 0.2
-    - _Smoothness: 0.761
+    - _Smoothness: 0.523
     - _SmoothnessRemapMax: 1
     - _SmoothnessRemapMin: 0
     - _SmoothnessTextureChannel: 0

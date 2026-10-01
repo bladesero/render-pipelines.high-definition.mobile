@@ -292,6 +292,8 @@ float _TessellationObjectScale;
 float _TessellationTilingScale;
 #endif
 
+// Mobile ShadowCaster also reads the material switch when its keyword is absent.
+float _AlphaCutoffEnable;
 CBUFFER_END
 
 // Following three variables are feeded by the C++ Editor for Scene selection

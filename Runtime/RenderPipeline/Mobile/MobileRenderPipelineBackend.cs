@@ -24,6 +24,7 @@ namespace UnityEngine.Rendering.HighDefinition
         MobileEnvironmentCache.State m_CameraEnvironment;
         readonly Volume m_DefaultVolume;
         readonly MobileErrorRenderer m_ErrorRenderer = new MobileErrorRenderer();
+        readonly MobileInstanceRenderer m_Instances = new MobileInstanceRenderer();
         readonly System.Collections.Generic.Dictionary<ReflectionProbe, Texture> m_OriginalProbeTextures = new System.Collections.Generic.Dictionary<ReflectionProbe, Texture>();
         readonly System.Collections.Generic.Dictionary<ReflectionProbe, Vector2> m_OriginalProbeSettings = new System.Collections.Generic.Dictionary<ReflectionProbe, Vector2>();
         readonly System.Collections.Generic.HashSet<ReflectionProbe> m_ActiveBakedProbes = new System.Collections.Generic.HashSet<ReflectionProbe>();
@@ -39,6 +40,7 @@ namespace UnityEngine.Rendering.HighDefinition
         readonly ShadowSplitData[] m_ShadowSplits = new ShadowSplitData[6];
         readonly bool m_PreviousBatcher, m_PreviousLinear, m_PreviousTemperature, m_PreviousKeyword, m_PreviousExtendedKeyword;
         readonly SupportedRenderingFeatures m_PreviousFeatures;
+        readonly uint m_PreviousRenderingLayerMask;
         readonly string m_PreviousShaderTag;
         int m_MainLight = -1;
         Vector4 m_MainDirection, m_MainColor;
@@ -68,6 +70,8 @@ namespace UnityEngine.Rendering.HighDefinition
             m_PreviousExtendedKeyword = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousExtendedKeyword : Shader.IsKeywordEnabled("MOBILE_EXTENDED_LIT");
             m_PreviousFeatures = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousFeatures : SupportedRenderingFeatures.active;
             m_PreviousShaderTag = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousShaderTag : Shader.globalRenderPipeline;
+            // Carry the original value across overlapping backend replacements.
+            m_PreviousRenderingLayerMask = s_ActiveOwner != null ? s_ActiveOwner.m_PreviousRenderingLayerMask : GraphicsSettings.defaultRenderingLayerMask;
             try
             {
                 m_Graph = new RenderGraph("HDRP Mobile");
@@ -91,9 +95,10 @@ namespace UnityEngine.Rendering.HighDefinition
                 MobileExposureControl.active = m_ExposureHistory;
                 MobileEnvironmentControl.active = m_Environment;
                 Shader.globalRenderPipeline = HDRenderPipeline.k_ShaderTagName;
-                GraphicsSettings.useScriptableRenderPipelineBatching = true;
+                ApplyBatchingSettings();
                 GraphicsSettings.lightsUseLinearIntensity = true;
                 GraphicsSettings.lightsUseColorTemperature = true;
+                GraphicsSettings.defaultRenderingLayerMask = ShaderVariablesGlobal.DefaultRenderingLayerMask;
                 Shader.EnableKeyword(MobileKeyword);
                 SupportedRenderingFeatures.active = new SupportedRenderingFeatures
                 {
@@ -117,13 +122,31 @@ namespace UnityEngine.Rendering.HighDefinition
             m_Graph.EndFrame();
             ++m_RenderGraphFrameIndex;
             PruneDeferredDepths();
+            PruneShadowCaches();
+            m_Instances.Prune();
         }
 
         internal void Render(ScriptableRenderContext context, Camera camera)
         {
+            try { RenderCamera(context, camera); }
+            finally { m_Instances.EndCamera(); }
+        }
+
+        // Native Renderer submission uses SRP Batcher when compatible; explicit
+        // instance draws keep their own per-instance buffers. Reapply on camera
+        // rendering so an in-place asset edit does not need pipeline recreation.
+        internal void ApplyBatchingSettings()
+        {
+            if (!m_Disposed && s_ActiveOwner == this)
+                GraphicsSettings.useScriptableRenderPipelineBatching = m_Asset.enableSRPBatcher;
+        }
+
+        void RenderCamera(ScriptableRenderContext context, Camera camera)
+        {
             bool capture = camera != null && camera == reflectionCaptureCamera;
             if (m_Disposed || camera == null || camera.stereoEnabled || (camera.cameraType == CameraType.Reflection && !capture))
                 return;
+            ApplyBatchingSettings();
             SynchronizeBakedReflectionProbes();
             // HDRP stores baked textures separately. Flush changes into the native
             // spatial cache before culling, including the first Camera.Render call.
@@ -135,6 +158,7 @@ namespace UnityEngine.Rendering.HighDefinition
             if (m_DefaultVolume != null) m_DefaultVolume.sharedProfile = HDRenderPipelineGlobalSettings.instance?.volumeProfile;
             VolumeManager.instance.Update(m_Volumes, anchor, mask);
             ResolveShadowSettings(settings);
+            m_Instances.Begin(camera, settings, m_ShadowSettings.shadowDistance);
             if (settings.drawUnsupportedMaterials) m_ErrorRenderer.Prepare(camera);
             parameters.shadowDistance = Mathf.Min(m_ShadowSettings.shadowDistance, camera.farClipPlane);
             parameters.cullingOptions &= ~CullingOptions.Stereo;
@@ -145,6 +169,7 @@ namespace UnityEngine.Rendering.HighDefinition
 #endif
             var culling = context.Cull(ref parameters);
             PrepareLights(ref culling);
+            m_Instances.PrepareLighting(culling, m_MainLight, m_LocalVisibleIndices, m_LocalLightCount, settings.additionalLightsPerObject);
             bool shadows = PrepareShadows(ref culling, m_ShadowSettings);
             PrepareLocalShadows(ref culling);
             FrameSettings frameSettings = new FrameSettings();
@@ -190,24 +215,43 @@ namespace UnityEngine.Rendering.HighDefinition
                         name = "Mobile Depth", depthBufferBits = DepthBits.Depth24, clearBuffer = true
                     });
                     int atlasSize = shadows ? ShadowAtlasSize(m_ShadowSettings.shadowAtlasSize) : 1;
-                    var atlas = m_Graph.CreateTexture(new TextureDesc(atlasSize, atlasSize)
+                    var shadowCache = GetShadowCache(camera);
+                    bool updateMain = NeedsMainShadowUpdate(shadowCache, culling, shadows, atlasSize);
+                    TextureHandle atlas;
+                    if (shadowCache.mainCacheable)
+                        atlas = m_Graph.ImportTexture(EnsureShadowAtlas(ref shadowCache.mainAtlas, atlasSize, "Mobile Main Shadow"));
+                    else
                     {
-                        name = "Mobile Main Shadow", depthBufferBits = DepthBits.Depth16,
-                        isShadowMap = true, clearBuffer = true, filterMode = FilterMode.Bilinear
-                    });
-                    RecordShadows(camera, culling, atlas, atlasSize, shadows);
+                        shadowCache.mainAtlas?.Release(); shadowCache.mainAtlas = null; shadowCache.mainValid = false;
+                        atlas = m_Graph.CreateTexture(new TextureDesc(atlasSize, atlasSize)
+                        {
+                            name = "Mobile Main Shadow", depthBufferBits = DepthBits.Depth16,
+                            isShadowMap = true, clearBuffer = true, filterMode = FilterMode.Bilinear
+                        });
+                    }
+                    if (updateMain) RecordShadows(camera, culling, atlas, atlasSize, shadows);
                     int localSize = m_LocalShadowCount > 0 ? ShadowAtlasSize(m_ShadowSettings.localShadowAtlasSize) : 1;
-                    var localAtlas = m_Graph.CreateTexture(new TextureDesc(localSize, localSize)
+                    bool updateLocal = NeedsLocalShadowUpdate(shadowCache, culling, localSize);
+                    TextureHandle localAtlas;
+                    if (shadowCache.localCacheable)
+                        localAtlas = m_Graph.ImportTexture(EnsureShadowAtlas(ref shadowCache.localAtlas, localSize, "Mobile Local Shadow Atlas"));
+                    else
                     {
-                        name = "Mobile Local Shadow Atlas", depthBufferBits = DepthBits.Depth16,
-                        isShadowMap = true, clearBuffer = true, filterMode = FilterMode.Bilinear
-                    });
-                    RecordLocalShadows(camera, culling, localAtlas, localSize);
+                        shadowCache.localAtlas?.Release(); shadowCache.localAtlas = null; shadowCache.localValid = false;
+                        localAtlas = m_Graph.CreateTexture(new TextureDesc(localSize, localSize)
+                        {
+                            name = "Mobile Local Shadow Atlas", depthBufferBits = DepthBits.Depth16,
+                            isShadowMap = true, clearBuffer = true, filterMode = FilterMode.Bilinear
+                        });
+                    }
+                    if (updateLocal)
+                        RecordLocalShadows(camera, culling, localAtlas, localSize);
                     RecordScene(camera, culling, color, depth, atlas, localAtlas, localSize, atlasSize, shadows, width, height, exposure, exposureState, deferred, nativeDeferred);
                     if (!capture) m_ExposureHistory.Record(m_Graph, color, exposureState, exposureVolume, m_Composite, (int)settings.meteringResolution);
                     TextureHandle bloom = m_Graph.defaultResources.blackTexture;
                     var bloomVolume = m_Volumes.GetComponent<Bloom>();
-                    float bloomIntensity = bloomVolume.active && bloomVolume.IsActive() ? bloomVolume.intensity.value : 0f;
+                    bool postProcess = !capture && frameSettings.IsEnabled(FrameSettingsField.Postprocess);
+                    float bloomIntensity = postProcess && frameSettings.IsEnabled(FrameSettingsField.Bloom) && bloomVolume.active && bloomVolume.IsActive() ? Mathf.Pow(2f, bloomVolume.intensity.value) - 1f : 0f;
                     if (!capture && bloomIntensity > 0f)
                     {
                         var down0 = RecordFilter(color, Mathf.Max(1, width / 2), Mathf.Max(1, height / 2), 1, "Mobile Bloom Half");
@@ -217,7 +261,7 @@ namespace UnityEngine.Rendering.HighDefinition
                     var output = m_Graph.ImportBackbuffer(camera.targetTexture != null
                         ? new RenderTargetIdentifier(camera.targetTexture) : new RenderTargetIdentifier(BuiltinRenderTextureType.CameraTarget));
                     if (capture) RecordReflectionCapture(color, output, width, height);
-                    else RecordComposite(camera, color, bloom, output, width, height, bloomIntensity);
+                    else RecordComposite(camera, color, bloom, output, width, height, bloomIntensity, frameSettings);
 #if UNITY_EDITOR
                     if (!capture && (camera.cameraType == CameraType.SceneView || UnityEditor.Handles.ShouldRenderGizmos()))
                         RecordEditorGizmos(camera, depth, output);
@@ -374,6 +418,7 @@ namespace UnityEngine.Rendering.HighDefinition
 
         void RecordShadows(Camera camera, CullingResults culling, TextureHandle atlas, int size, bool enabled)
         {
+            if (enabled) mainShadowDrawCount++;
             using (var builder = m_Graph.AddRenderPass<ShadowData>("Mobile Main Shadow", out var data))
             {
                 data.camera = camera; data.culling = culling; data.size = size; data.enabled = enabled;
@@ -385,6 +430,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 builder.UseDepthBuffer(atlas, DepthAccess.Write);
                 builder.SetRenderFunc((ShadowData pass, RenderGraphContext ctx) =>
                 {
+                    ctx.cmd.ClearRenderTarget(true, false, Color.clear);
                     if (!pass.enabled) return;
                     int tile = pass.size / pass.grid;
                     ctx.cmd.EnableShaderKeyword(MobileKeyword);
@@ -439,7 +485,7 @@ namespace UnityEngine.Rendering.HighDefinition
             internal TextureHandle exposureTexture;
             internal bool automaticExposure;
             internal MobileEnvironmentCache.State environment;
-            internal Vector4 indirect;
+            internal Vector4 indirect, captureLighting;
             internal bool bakedProbes;
             internal readonly Vector4[] positions = new Vector4[MaxVisibleLights], colors = new Vector4[MaxVisibleLights],
                 spots = new Vector4[MaxVisibleLights], attenuations = new Vector4[MaxVisibleLights], spheres = new Vector4[6];
@@ -476,6 +522,17 @@ namespace UnityEngine.Rendering.HighDefinition
                 data.fogColor = settings.fogColor.linear;
                 data.drawErrors = settings.drawUnsupportedMaterials;
                 camera.TryGetComponent<HDAdditionalCameraData>(out var additional);
+                bool reflectionCapture = camera == reflectionCaptureCamera;
+                data.captureLighting = new Vector4(1, 1, 0, 0);
+                if (reflectionCapture)
+                {
+                    var captureFrameSettings = new FrameSettings();
+                    FrameSettings.AggregateFrameSettings(ref captureFrameSettings, camera, additional, m_Asset);
+                    data.captureLighting = new Vector4(
+                        captureFrameSettings.IsEnabled(FrameSettingsField.DirectSpecularLighting) ? 1 : 0,
+                        captureFrameSettings.IsEnabled(FrameSettingsField.SkyReflection) ? 1 : 0,
+                        captureFrameSettings.IsEnabled(FrameSettingsField.ReplaceDiffuseForIndirect) ? 1 : 0, 0);
+                }
                 data.exposure = exposure;
                 data.automaticExposure = exposureState != null;
                 data.exposureTexture = builder.ReadTexture(exposureState != null ? m_Graph.ImportTexture(exposureState.read) : m_Graph.defaultResources.whiteTexture);
@@ -483,7 +540,9 @@ namespace UnityEngine.Rendering.HighDefinition
                 data.drawSky = additional != null ? additional.clearColorMode == HDAdditionalCameraData.ClearColorMode.Sky : camera.clearFlags == CameraClearFlags.Skybox;
                 data.sky = MobileSky.Resolve(settings, m_Volumes, RenderSettings.skybox, Mathf.Max(m_MainColor.x, Mathf.Max(m_MainColor.y, m_MainColor.z)));
                 data.environment = m_CameraEnvironment;
-                data.bakedProbes = settings.environmentDiffuseSource == MobileEnvironmentDiffuseSource.PreferBakedProbes && LightmapSettings.lightProbes != null && LightmapSettings.lightProbes.count > 0;
+                // Capture baked GI/SH like Desktop. An unoccluded runtime sky
+                // fallback would be permanently baked into dark interior surfaces.
+                data.bakedProbes = reflectionCapture || (settings.environmentDiffuseSource == MobileEnvironmentDiffuseSource.PreferBakedProbes && LightmapSettings.lightProbes != null && LightmapSettings.lightProbes.count > 0);
                 var indirect = m_Volumes.GetComponent<IndirectLightingController>();
                 data.indirect = indirect.active ? new Vector4(indirect.indirectDiffuseLightingMultiplier.value, indirect.reflectionLightingMultiplier.value, indirect.reflectionProbeIntensityMultiplier.value, 0) : Vector4.one;
                 data.atlas = builder.ReadTexture(atlas);
@@ -524,6 +583,7 @@ namespace UnityEngine.Rendering.HighDefinition
             ctx.cmd.SetGlobalTexture("_MobileExposureTexture", pass.exposureTexture);
             ctx.cmd.SetGlobalFloat("_MobileDeExposure", pass.deExposure);
             ctx.cmd.SetGlobalFloat("_MobileReflectionCapture", pass.camera == reflectionCaptureCamera ? 1 : 0);
+            ctx.cmd.SetGlobalVector("_MobileCaptureLighting", pass.captureLighting);
             ctx.cmd.SetGlobalMatrix("_MobileInvVP", pass.vp.inverse);
             ctx.cmd.SetGlobalVector("_MobileCameraPosition", pass.position);
             ctx.cmd.SetGlobalVector("_MobileCameraForward", pass.forward);
@@ -621,6 +681,16 @@ namespace UnityEngine.Rendering.HighDefinition
             };
             var filtering = new FilteringSettings(transparent ? RenderQueueRange.transparent : RenderQueueRange.opaque, camera.cullingMask);
             context.DrawRenderers(culling, ref drawing, ref filtering);
+            if (!transparent)
+            {
+                var commands = CommandBufferPool.Get("Mobile Instances");
+                try
+                {
+                    m_Instances.Draw(commands, passName ?? "MobileForward");
+                    context.ExecuteCommandBuffer(commands);
+                }
+                finally { CommandBufferPool.Release(commands); }
+            }
         }
 
         class FilterData
@@ -628,6 +698,7 @@ namespace UnityEngine.Rendering.HighDefinition
             internal TextureHandle source;
             internal Material material;
             internal int pass;
+            internal Vector4 bloomThreshold;
         }
 
         TextureHandle RecordFilter(TextureHandle source, int width, int height, int shaderPass, string name)
@@ -637,12 +708,14 @@ namespace UnityEngine.Rendering.HighDefinition
             using (var builder = m_Graph.AddRenderPass<FilterData>(name, out var data))
             {
                 data.source = builder.ReadTexture(source); data.material = m_Composite; data.pass = shaderPass;
+                data.bloomThreshold = ColorGradingUtilities.GetBloomThreshold(m_Volumes.GetComponent<Bloom>().threshold.value);
                 builder.UseColorBuffer(result, 0);
                 builder.SetRenderFunc((FilterData pass, RenderGraphContext ctx) =>
                 {
                     RTHandle texture = pass.source;
                     ctx.cmd.SetGlobalTexture("_MobileSource", pass.source);
                     ctx.cmd.SetGlobalVector("_MobileSourceSize", new Vector4(1f / texture.rt.width, 1f / texture.rt.height, texture.rt.width, texture.rt.height));
+                    ctx.cmd.SetGlobalVector("_MobileBloomThreshold", pass.bloomThreshold);
                     ctx.cmd.DrawProcedural(Matrix4x4.identity, pass.material, pass.pass, MeshTopology.Triangles, 3);
                 });
             }
@@ -651,12 +724,13 @@ namespace UnityEngine.Rendering.HighDefinition
 
         class CompositeData
         {
-            internal TextureHandle source, bloom;
+            internal TextureHandle source, bloom, gradingLut;
             internal Material material;
-            internal Vector4 sourceSize, adjustments, options;
-            internal Color filter;
+            internal Vector4 sourceSize, options;
+            internal Vector4 lutParams;
             internal Rect viewport;
-            internal float hue, bloomIntensity;
+            internal float postExposure, bloomIntensity, gradingEnabled;
+            internal Color bloomTint;
         }
 
         void RecordReflectionCapture(TextureHandle source, TextureHandle output, int width, int height)
@@ -676,38 +750,46 @@ namespace UnityEngine.Rendering.HighDefinition
             }
         }
 
-        void RecordComposite(Camera camera, TextureHandle color, TextureHandle bloom, TextureHandle output, int width, int height, float bloomIntensity)
+        void RecordComposite(Camera camera, TextureHandle color, TextureHandle bloom, TextureHandle output, int width, int height, float bloomIntensity, FrameSettings frameSettings)
         {
+            bool postProcess = frameSettings.IsEnabled(FrameSettingsField.Postprocess);
+            bool grading = postProcess && frameSettings.IsEnabled(FrameSettingsField.ColorGrading);
+            bool tonemapping = postProcess && frameSettings.IsEnabled(FrameSettingsField.Tonemapping) && m_Volumes.GetComponent<Tonemapping>().IsActive();
+            bool useLut = (grading && HasActiveColorGrading()) || tonemapping;
+            var lut = useLut ? RecordColorGrading(grading, tonemapping) : m_Graph.defaultResources.blackTexture;
             var adjustments = m_Volumes.GetComponent<ColorAdjustments>();
-            var tone = m_Volumes.GetComponent<Tonemapping>();
-            var mobilePost = m_Volumes.GetComponent<MobilePostProcessing>();
             using (var builder = m_Graph.AddRenderPass<CompositeData>("Mobile Composite", out var data))
             {
                 data.source = builder.ReadTexture(color); data.bloom = builder.ReadTexture(bloom);
+                data.gradingLut = builder.ReadTexture(lut);
+                data.gradingEnabled = useLut ? 1f : 0f;
+                int lutSize = m_Asset.currentPlatformRenderPipelineSettings.postProcessSettings.lutSize;
+                data.lutParams = new Vector4(1f / (lutSize * lutSize), 1f / lutSize, lutSize - 1f, 0);
                 builder.UseColorBuffer(output, 0);
                 data.material = m_Composite;
                 data.viewport = camera.pixelRect;
                 data.sourceSize = new Vector4(1f / width, 1f / height, width, height);
-                data.adjustments = new Vector4(Mathf.Pow(2f, adjustments.active ? adjustments.postExposure.value : 0),
-                    adjustments.active ? 1 + adjustments.contrast.value / 100f : 1,
-                    adjustments.active ? 1 + adjustments.saturation.value / 100f : 1, 0);
-                data.filter = adjustments.active ? adjustments.colorFilter.value.linear : Color.white;
-                data.hue = adjustments.active ? adjustments.hueShift.value / 360f : 0;
-                data.options = new Vector4(mobilePost.active && mobilePost.fxaa.value ? 1 : 0,
-                    tone.active ? (int)tone.mode.value : 0,
+                data.postExposure = Mathf.Pow(2f, grading && adjustments.active ? adjustments.postExposure.value : 0);
+                data.options = new Vector4(IsFXAAEnabled(camera, frameSettings) ? 1 : 0,
+                    0,
                     SystemInfo.graphicsUVStartsAtTop && camera.targetTexture == null ? 1 : 0, 0);
                 data.bloomIntensity = bloomIntensity;
+                var tint = m_Volumes.GetComponent<Bloom>().tint.value.linear;
+                float luminance = ColorUtils.Luminance(tint);
+                data.bloomTint = luminance > 0 ? tint / luminance : Color.white;
                 builder.SetRenderFunc((CompositeData pass, RenderGraphContext ctx) =>
                 {
                     ctx.cmd.SetViewport(pass.viewport);
                     ctx.cmd.SetGlobalTexture("_MobileSource", pass.source);
                     ctx.cmd.SetGlobalTexture("_MobileBloom", pass.bloom);
+                    ctx.cmd.SetGlobalTexture("_MobileGradingLut", pass.gradingLut);
+                    ctx.cmd.SetGlobalFloat("_MobileGradingEnabled", pass.gradingEnabled);
+                    ctx.cmd.SetGlobalVector("_MobileLutParams", pass.lutParams);
                     ctx.cmd.SetGlobalVector("_MobileSourceSize", pass.sourceSize);
-                    ctx.cmd.SetGlobalVector("_MobileAdjustments", pass.adjustments);
+                    ctx.cmd.SetGlobalFloat("_MobilePostExposure", pass.postExposure);
                     ctx.cmd.SetGlobalVector("_MobilePostOptions", pass.options);
-                    ctx.cmd.SetGlobalColor("_MobileColorFilter", pass.filter);
-                    ctx.cmd.SetGlobalFloat("_MobileHue", pass.hue);
                     ctx.cmd.SetGlobalFloat("_MobileBloomIntensity", pass.bloomIntensity);
+                    ctx.cmd.SetGlobalColor("_MobileBloomTint", pass.bloomTint);
                     ctx.cmd.DrawProcedural(Matrix4x4.identity, pass.material, 0, MeshTopology.Triangles, 3);
                 });
             }
@@ -717,6 +799,7 @@ namespace UnityEngine.Rendering.HighDefinition
         {
             if (m_Disposed) return;
             m_Disposed = true;
+            m_Instances.Dispose();
             try { m_Graph?.Cleanup(); }
             finally
             {
@@ -725,6 +808,9 @@ namespace UnityEngine.Rendering.HighDefinition
                     m_ExposureHistory.Dispose();
                     m_Environment.Dispose();
                     m_ReflectionAtlas.Dispose();
+                    DisposeShadowCaches();
+                    m_MobileGradingLut?.Release();
+                    m_MobileGradingLut = null;
                     DisposeDeferred();
                     CoreUtils.Destroy(m_Composite); CoreUtils.Destroy(m_Sky); CoreUtils.Destroy(m_Error);
                     if (m_Volumes != null) VolumeManager.instance.DestroyStack(m_Volumes);
@@ -747,6 +833,7 @@ namespace UnityEngine.Rendering.HighDefinition
                                 GraphicsSettings.useScriptableRenderPipelineBatching = m_PreviousBatcher;
                                 GraphicsSettings.lightsUseLinearIntensity = m_PreviousLinear;
                                 GraphicsSettings.lightsUseColorTemperature = m_PreviousTemperature;
+                                GraphicsSettings.defaultRenderingLayerMask = m_PreviousRenderingLayerMask;
                                 if (m_PreviousKeyword) Shader.EnableKeyword(MobileKeyword); else Shader.DisableKeyword(MobileKeyword);
                                 if (m_PreviousExtendedKeyword) Shader.EnableKeyword("MOBILE_EXTENDED_LIT"); else Shader.DisableKeyword("MOBILE_EXTENDED_LIT");
                                 SupportedRenderingFeatures.active = m_PreviousFeatures;

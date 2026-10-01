@@ -68,27 +68,20 @@ float3 MobileSampleHDProbe(int i, float3 direction, float lod)
 float3 MobileSampleHDRPReflection(float3 position, float3 reflected, float roughness)
 {
     float mip = min(6, PerceptualRoughnessToMipmapLevel(roughness));
-    float3 result = 0, groupColor = 0;
-    float remaining = 1, groupWeight = 0;
-    float importance = _MobileReflectionParams16[0].y;
+    float3 result = 0;
+    float remaining = 1;
     for (int i = 0; i < _MobileReflectionCount16; ++i)
     {
-        if (_MobileReflectionParams16[i].y != importance)
+        // CPU orders local/small volumes first, like Desktop LightLoop.
+        // Match UpdateLightingHierarchyWeights: consume weight additively,
+        // rather than averaging overlapping indoor and outdoor probes.
+        float weight = min(MobileHDProbeWeight(i, position), remaining);
+        if (weight > 0)
         {
-            result += remaining * groupColor / max(1, groupWeight);
-            remaining *= 1 - saturate(groupWeight);
-            groupColor = 0; groupWeight = 0;
-            importance = _MobileReflectionParams16[i].y;
-        }
-        float weight = MobileHDProbeWeight(i, position);
-        if (weight > 0 && remaining > 0)
-        {
-            groupColor += weight * MobileSampleHDProbe(i, MobileHDProbeDirection(i, position, reflected), mip);
-            groupWeight += weight;
+            result += weight * MobileSampleHDProbe(i, MobileHDProbeDirection(i, position, reflected), mip);
+            remaining = max(0, remaining - weight);
         }
     }
-    result += remaining * groupColor / max(1, groupWeight);
-    remaining *= 1 - saturate(groupWeight);
     result *= _MobileIndirectMultiplier.z;
     if (_MobileEnvironmentParams.x > 0)
         result += remaining * SAMPLE_TEXTURECUBE_LOD(_MobileEnvironmentReflection, sampler_MobileEnvironmentReflection,

@@ -9,7 +9,8 @@ namespace UnityEditor.Rendering.HighDefinition
         Editor m_CubemapEditor;
         MobileReflectionProbePreview m_MobilePreview;
         Vector2 m_MobilePreviewAngles;
-        float m_MobilePreviewExposure = -10, m_MobilePreviewMip;
+        // Match the Desktop texture inspector: preview raw texels at zero EV.
+        float m_MobilePreviewExposure, m_MobilePreviewMip;
         static bool useMobilePreview => GraphicsSettings.currentRenderPipeline is HDRenderPipelineAsset asset && asset.rendererMode == HDRendererMode.Mobile;
 
         public override bool HasPreviewGUI()
@@ -79,10 +80,9 @@ namespace UnityEditor.Rendering.HighDefinition
                 if (evt.type == EventType.Repaint)
                 {
                     if (m_MobilePreview == null) m_MobilePreview = new MobileReflectionProbePreview();
-                    var probe = GetTarget(target);
                     var image = m_MobilePreview.Render(tex, Mathf.CeilToInt(position.width), Mathf.CeilToInt(position.height),
                         Quaternion.Euler(m_MobilePreviewAngles.y, m_MobilePreviewAngles.x, 0), m_MobilePreviewMip,
-                        m_MobilePreviewExposure, probe.multiplier * Mathf.Max(probe.rangeCompressionFactor, 1e-6f));
+                        m_MobilePreviewExposure);
                     GUI.DrawTexture(position, image, ScaleMode.StretchToFill, false);
                 }
                 return;
@@ -116,7 +116,7 @@ namespace UnityEditor.Rendering.HighDefinition
     {
         Material m_Material;
         RenderTexture m_Target;
-        internal RenderTexture Render(Texture cube, int width, int height, Quaternion rotation, float mip, float exposure, float intensity)
+        internal RenderTexture Render(Texture cube, int width, int height, Quaternion rotation, float mip, float exposure)
         {
             width = Mathf.Clamp(width, 16, 2048); height = Mathf.Clamp(height, 16, 2048);
             if (m_Material == null) m_Material = CoreUtils.CreateEngineMaterial(Shader.Find("Hidden/Debug/ReflectionProbePreview"));
@@ -133,7 +133,6 @@ namespace UnityEditor.Rendering.HighDefinition
             m_Material.SetMatrix("_MobileProbePreviewVP", GL.GetGPUProjectionMatrix(projection, true) * view);
             m_Material.SetVector("_MobileProbePreviewCamera", position);
             m_Material.SetTexture("_Cubemap", cube);
-            m_Material.SetFloat("_MobileProbePreviewIntensity", intensity);
             m_Material.SetFloat("_MipLevel", mip);
             m_Material.SetFloat("_Exposure", exposure);
             m_Material.SetFloat("_MobileExposure", 1);

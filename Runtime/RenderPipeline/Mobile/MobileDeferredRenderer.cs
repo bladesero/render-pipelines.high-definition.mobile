@@ -10,6 +10,7 @@ namespace UnityEngine.Rendering.HighDefinition
     {
         bool UseExtendedDeferred => m_Asset.mobileSettings.extendedLitMaterials && SystemInfo.supportedRenderTargetCount >= 4;
         Material[] m_DeferredMaterials;
+        readonly MobileDeferredMaterialUsage m_DeferredMaterialUsage = new MobileDeferredMaterialUsage();
         readonly Dictionary<Camera, RTHandle> m_DeferredDepths = new Dictionary<Camera, RTHandle>();
         readonly List<Camera> m_ExpiredDepthCameras = new List<Camera>();
         Mesh m_DeferredSphere, m_DeferredCone;
@@ -18,6 +19,11 @@ namespace UnityEngine.Rendering.HighDefinition
         internal bool lastCameraUsedDeferred { get; private set; }
         internal bool lastCameraUsedNativeDeferred { get; private set; }
         internal int lastCameraColorAttachmentCount { get; private set; }
+        internal int lastCameraDeferredLightingDraws { get; private set; }
+        internal int lastCameraDeferredVariantMask { get; private set; }
+
+        internal static bool HasDeferredLightContribution(Vector4 color)
+            => color.x > 0 || color.y > 0 || color.z > 0;
 
         internal static bool CompactFormatsSupported()
         {
@@ -36,6 +42,7 @@ namespace UnityEngine.Rendering.HighDefinition
         {
             native = false; lastCameraUsedDeferred = lastCameraUsedNativeDeferred = false;
             lastCameraColorAttachmentCount = 0;
+            lastCameraDeferredLightingDraws = lastCameraDeferredVariantMask = 0;
             if (m_Asset.mobileSettings.renderingPath != MobileRenderingPath.Deferred) return false;
             string reason = null;
             if (m_Asset.mobileResources.deferredShader == null) reason = "HDRP built-in Mobile Deferred shader is unavailable.";
@@ -184,6 +191,8 @@ namespace UnityEngine.Rendering.HighDefinition
 
         void DrawDeferredScene(SceneData pass, RenderGraphContext ctx)
         {
+            lastCameraDeferredVariantMask = m_DeferredMaterialUsage.Gather(pass.camera, pass.extendedLit)
+                | m_Instances.DeferredLightingVariantMask(pass.extendedLit);
             ctx.cmd.SetGlobalVector("_MobileBufferSize", new Vector4(pass.width, pass.height, 1f / pass.width, 1f / pass.height));
             ctx.cmd.SetGlobalFloat("_MobileUseLightVolume", 0);
             Flush(ctx);
@@ -287,7 +296,8 @@ namespace UnityEngine.Rendering.HighDefinition
 
         void DrawDeferredForward(SceneData pass, RenderGraphContext ctx)
         {
-            DrawObjects(ctx.renderContext, pass.camera, pass.culling, pass.mainLight, false, "MobileForwardOnly");
+            DrawObjects(ctx.renderContext, pass.camera, pass.culling, pass.mainLight, false,
+                pass.extendedLit ? "MobileForwardOnlyExtended" : "MobileForwardOnly");
             if (pass.drawErrors) m_ErrorRenderer.Draw(ctx.cmd, pass.camera, m_Error, false);
             if (pass.sky.mode != 0 && pass.drawSky)
             {
@@ -303,11 +313,13 @@ namespace UnityEngine.Rendering.HighDefinition
 
         void DrawDeferredLights(SceneData pass, RenderGraphContext ctx)
         {
+            int variantMask = lastCameraDeferredVariantMask;
+            if (variantMask == 0) return;
             int fullscreenPass = pass.nativeDeferred ? 1 : 0;
             ctx.cmd.SetGlobalFloat("_MobileUseLightVolume", 0);
             ctx.cmd.SetGlobalInt("_MobileLightIndex", -1);
-            for (int flags = 0; flags < m_DeferredMaterials.Length; flags++)
-                ctx.cmd.DrawProcedural(Matrix4x4.identity, m_DeferredMaterials[flags], fullscreenPass, MeshTopology.Triangles, 3);
+            if (pass.mainLight >= 0 && HasDeferredLightContribution(pass.mainColor))
+                DrawDeferredFullscreen(ctx.cmd, fullscreenPass, variantMask);
 
             int index = 0;
             foreach (var visible in pass.culling.visibleLights)
@@ -316,6 +328,9 @@ namespace UnityEngine.Rendering.HighDefinition
                 if (index == MaxVisibleLights) break;
                 if (light == null || light.bakingOutput.lightmapBakeType == LightmapBakeType.Baked
                     || (visible.lightType != LightType.Point && visible.lightType != LightType.Spot)) continue;
+                // Keep the packed light/shadow index even when this draw is skipped.
+                int lightIndex = index++;
+                if (!HasDeferredLightContribution(pass.colors[lightIndex])) continue;
                 bool spot = visible.lightType == LightType.Spot;
                 float range = visible.range;
                 Vector3 origin = visible.localToWorldMatrix.GetColumn(3);
@@ -330,15 +345,14 @@ namespace UnityEngine.Rendering.HighDefinition
                 bool fullscreen = (center - cameraPosition).sqrMagnitude <= boundRadius * boundRadius
                     || viewDepth - boundRadius <= pass.camera.nearClipPlane
                     || viewDepth + boundRadius >= pass.camera.farClipPlane;
-                ctx.cmd.SetGlobalInt("_MobileLightIndex", index++);
+                ctx.cmd.SetGlobalInt("_MobileLightIndex", lightIndex);
                 ctx.cmd.SetGlobalFloat("_MobileUseLightVolume", fullscreen ? 0 : 1);
                 if (fullscreen)
                 {
                     // A near-plane intersecting sphere may project to the entire viewport.
                     // The full viewport is the conservative scissor for this fallback.
                     ctx.cmd.EnableScissorRect(new Rect(0, 0, pass.width, pass.height));
-                    for (int flags = 0; flags < m_DeferredMaterials.Length; flags++)
-                        ctx.cmd.DrawProcedural(Matrix4x4.identity, m_DeferredMaterials[flags], fullscreenPass, MeshTopology.Triangles, 3);
+                    DrawDeferredFullscreen(ctx.cmd, fullscreenPass, variantMask);
                     ctx.cmd.DisableScissorRect();
                 }
                 else
@@ -347,14 +361,29 @@ namespace UnityEngine.Rendering.HighDefinition
                         spot ? new Vector3(radius, radius, range) : Vector3.one * range);
                     ctx.cmd.SetGlobalMatrix("_MobileLightVolumeTransform", transform);
                     for (int flags = 0; flags < m_DeferredMaterials.Length; flags++)
+                    {
+                        if ((variantMask & (1 << flags)) == 0) continue;
                         ctx.cmd.DrawMesh(spot ? m_DeferredCone : m_DeferredSphere, Matrix4x4.identity,
                             m_DeferredMaterials[flags], 0, pass.nativeDeferred ? 6 : 5);
+                        lastCameraDeferredLightingDraws++;
+                    }
                 }
             }
             ctx.cmd.SetGlobalFloat("_MobileUseLightVolume", 0);
             if (pass.fog.x > 0)
                 for (int type = 0; type < m_DeferredMaterials.Length; type += 4)
-                    ctx.cmd.DrawProcedural(Matrix4x4.identity, m_DeferredMaterials[type], pass.nativeDeferred ? 3 : 2, MeshTopology.Triangles, 3);
+                    if ((variantMask & (15 << type)) != 0)
+                        ctx.cmd.DrawProcedural(Matrix4x4.identity, m_DeferredMaterials[type], pass.nativeDeferred ? 3 : 2, MeshTopology.Triangles, 3);
+        }
+
+        void DrawDeferredFullscreen(CommandBuffer cmd, int pass, int variantMask)
+        {
+            for (int flags = 0; flags < m_DeferredMaterials.Length; flags++)
+            {
+                if ((variantMask & (1 << flags)) == 0) continue;
+                cmd.DrawProcedural(Matrix4x4.identity, m_DeferredMaterials[flags], pass, MeshTopology.Triangles, 3);
+                lastCameraDeferredLightingDraws++;
+            }
         }
 
         internal static Mesh BuildLightVolume(bool cone)

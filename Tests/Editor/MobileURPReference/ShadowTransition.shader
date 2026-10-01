@@ -5,6 +5,7 @@ Shader "Hidden/HDRP/Tests/MobileShadowTransition"
         Cull Off ZWrite Off ZTest Always
         Pass
         {
+            Name "Cascade"
             HLSLPROGRAM
             #pragma target 3.5
             #pragma only_renderers d3d11 vulkan
@@ -25,6 +26,7 @@ Shader "Hidden/HDRP/Tests/MobileShadowTransition"
         }
         Pass
         {
+            Name "CasterBias"
             HLSLPROGRAM
             #pragma target 3.5
             #pragma only_renderers d3d11 vulkan
@@ -39,6 +41,26 @@ Shader "Hidden/HDRP/Tests/MobileShadowTransition"
             {
                 return float4(MobileApplyShadowNormalBias(float3(1, 2, 3), float3(0, 1, 0),
                     _MobileMainDirection.xyz, _MobileShadowNormalBias), 1);
+            }
+            ENDHLSL
+        }
+        Pass
+        {
+            Name "Local"
+            HLSLPROGRAM
+            #pragma target 3.5
+            #pragma only_renderers d3d11 vulkan
+            #pragma vertex Vert
+            #pragma fragment Frag
+            #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobileInput.hlsl"
+            #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/Mobile/Shaders/MobileShadow.hlsl"
+            struct Varyings { float4 positionCS : SV_POSITION; };
+            Varyings Vert(uint id : SV_VertexID)
+            { Varyings o; o.positionCS = GetFullScreenTriangleVertexPosition(id); return o; }
+            float4 Frag(Varyings input) : SV_Target
+            {
+                float shadow = MobileLocalShadow(float3(input.positionCS.xy, 0), 0);
+                return float4(shadow, shadow, shadow, 1);
             }
             ENDHLSL
         }

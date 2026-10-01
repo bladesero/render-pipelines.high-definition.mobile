@@ -42,6 +42,8 @@ float3 _EmissionColor;
 // By default, the emissive is contributing
 float _IncludeIndirectLighting;
 
+// Mobile ShadowCaster also reads the material switch when its keyword is absent.
+float _AlphaCutoffEnable;
 CBUFFER_END
 
 // Following two variables are feeded by the C++ Editor for Scene selection

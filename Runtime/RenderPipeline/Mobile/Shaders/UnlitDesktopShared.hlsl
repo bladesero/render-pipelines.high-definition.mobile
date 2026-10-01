@@ -8,7 +8,9 @@
     // Variant
     //-------------------------------------------------------------------------------------
 
+    #if !defined(HDRP_SHADOW_ALPHA_VARIANTS)
     #pragma shader_feature_local _ALPHATEST_ON
+    #endif
     // #pragma shader_feature_local _DOUBLESIDED_ON - We have no lighting, so no need to have this combination for shader, the option will just disable backface culling
 
     #pragma shader_feature_local_fragment _EMISSIVE_COLOR_MAP

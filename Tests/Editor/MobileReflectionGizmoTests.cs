@@ -7,6 +7,23 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
     public partial class MobileImageTests
     {
         [Test]
+        public void MobileInspectorProbePreviewStartsAtDesktopExposure()
+        {
+            var cube = ReflectionCube(Color.red);
+            var probe = AtlasProbe(cube, UnityEngine.Rendering.HighDefinition.ProbeSettings.Mode.Custom);
+            var editor = Own(Editor.CreateEditor(probe.GetComponent<ReflectionProbe>(), typeof(HDReflectionProbeEditor)));
+            var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            float mobileExposure = (float)typeof(HDReflectionProbeEditor).GetField("m_MobilePreviewExposure", flags).GetValue(editor);
+            var desktopEditor = Own(Editor.CreateEditor(cube));
+            System.Reflection.FieldInfo exposureField = null;
+            for (var type = desktopEditor.GetType(); type != null && exposureField == null; type = type.BaseType)
+                exposureField = type.GetField("m_ExposureSliderValue", flags);
+            Assert.IsNotNull(exposureField, "Desktop texture inspector exposure must be available for the parity check.");
+            Assert.AreEqual((float)exposureField.GetValue(desktopEditor), mobileExposure,
+                "Switching renderer must not introduce a preview exposure offset.");
+        }
+
+        [Test]
         public void MobileInspectorProbePreviewRendersHdrWithoutPipelineCamera()
         {
             var cube = ReflectionCube(Color.red * 4096);
@@ -15,19 +32,20 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             var previous = RenderTexture.active;
             try
             {
-                foreach (float exposure in new[] { -12f, -13f })
+                foreach (float exposure in new[] { 0f, -12f, -13f })
                 {
-                    var target = preview.Render(cube, 128, 96, Quaternion.identity, 0, exposure, 1);
+                    var target = preview.Render(cube, 128, 96, Quaternion.identity, 0, exposure);
                     RenderTexture.active = target;
                     read.ReadPixels(new Rect(64, 48, 1, 1), 0, 0); read.Apply();
-                    Assert.That(read.GetPixel(0, 0).r, Is.EqualTo(Mathf.Pow(2, exposure + 12)).Within(.02f));
+                    float expected = Mathf.Pow(2, exposure + 12);
+                    Assert.That(read.GetPixel(0, 0).r, Is.EqualTo(expected).Within(expected * .02f));
                 }
                 cube.SetPixels(new Color[32 * 32], CubemapFace.NegativeZ); cube.Apply();
-                var black = preview.Render(cube, 64, 64, Quaternion.identity, 0, -12, 1);
+                var black = preview.Render(cube, 64, 64, Quaternion.identity, 0, -12);
                 RenderTexture.active = black;
                 read.ReadPixels(new Rect(32, 32, 1, 1), 0, 0); read.Apply();
                 Assert.Less(read.GetPixel(0, 0).r, .01f);
-                var rotated = preview.Render(cube, 64, 64, Quaternion.Euler(0, 180, 0), 2, -12, 1);
+                var rotated = preview.Render(cube, 64, 64, Quaternion.Euler(0, 180, 0), 2, -12);
                 RenderTexture.active = rotated;
                 read.ReadPixels(new Rect(32, 32, 1, 1), 0, 0); read.Apply();
                 Assert.Greater(read.GetPixel(0, 0).r, .9f, "Inspector drag rotation must expose another cubemap face.");
@@ -40,7 +58,6 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         {
             var material = Own(new Material(Shader.Find("Hidden/Debug/ReflectionProbePreview")));
             material.SetTexture("_Cubemap", ReflectionCube(Color.red * 4096));
-            material.SetFloat("_MobileProbePreviewIntensity", 1);
             material.SetFloat("_MobileExposure", 1f / 4096);
             material.SetFloat("_MobileAutomaticExposure", 0);
             int pass = material.FindPass("MobileReflectionProbePreview");

@@ -8,29 +8,7 @@
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Packing.hlsl"
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/EntityLighting.hlsl"
 
-// Engine feature blocks; their ordering and full-precision storage are required by SRP Batcher.
-CBUFFER_START(UnityPerDraw)
-float4x4 unity_ObjectToWorld;
-float4x4 unity_WorldToObject;
-float4 unity_LODFade;
-float4 unity_WorldTransformParams;
-float4 unity_RenderingLayer;
-float4 unity_LightData;
-float4 unity_LightIndices[2];
-float4 unity_ProbesOcclusion;
-float4 unity_SpecCube0_HDR;
-float4 unity_SpecCube1_HDR;
-float4 unity_SpecCube0_BoxMax;
-float4 unity_SpecCube0_BoxMin;
-float4 unity_SpecCube0_ProbePosition;
-float4 unity_SpecCube1_BoxMax;
-float4 unity_SpecCube1_BoxMin;
-float4 unity_SpecCube1_ProbePosition;
-float4 unity_LightmapST;
-float4 unity_DynamicLightmapST;
-float4 unity_SHAr, unity_SHAg, unity_SHAb;
-float4 unity_SHBr, unity_SHBg, unity_SHBb, unity_SHC;
-CBUFFER_END
+#include "Packages/com.unity.render-pipelines.high-definition/Runtime/ShaderLibrary/ShaderVariablesPerDraw.hlsl"
 
 float4x4 _MobileVP, _MobileInvVP;
 float4x4 unity_MatrixVP;
@@ -39,11 +17,14 @@ float4 _MobileCameraForward;
 #include "MobileExposure.hlsl"
 float _MobileDeExposure;
 float _MobileReflectionCapture;
+float4 _MobileCaptureLighting; // direct specular, sky reflection, replace indirect diffuse, unused
 float _MobileDeferredExtendedLayout;
 float4 _MobileMainDirection, _MobileMainColor;
 float4 _MobileLightPositions[32], _MobileLightColors[32];
 float4 _MobileLightSpots[32], _MobileLightAttenuations[32];
 int _MobileLightsPerObject;
+// Shadow transforms, cascade spheres and bias parameters must remain FP32 on
+// both caster and receiver paths, independently of surface lighting precision.
 float4x4 _MobileCSMShadowMatrices6[6];
 float4 _MobileCSMShadowSpheres6[6], _MobileShadowParams;
 int _MobileCascadeCount, _MobileShadowFilterSize;

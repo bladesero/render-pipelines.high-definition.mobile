@@ -110,16 +110,187 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
                     Assert.AreEqual(id == 1, material.GetShaderPassEnabled("MobileGBuffer"));
                     Assert.AreEqual((id << 4) | 128 | (id == 4 ? 8 : 0), material.GetInt("_MobileStencilRef"));
                     Assert.AreEqual(id == 1 || id == 4, material.GetShaderPassEnabled("MobileGBufferExtended"));
-                    Assert.IsTrue(material.GetShaderPassEnabled("MobileForwardOnly"));
+                    Assert.AreEqual(id != 1, material.GetShaderPassEnabled("MobileForwardOnly"));
+                    Assert.AreEqual(id != 1 && id != 4, material.GetShaderPassEnabled("MobileForwardOnlyExtended"));
                     Assert.AreEqual(0xe0 | (id == 4 ? 8 : 0), material.GetInt("_MobileForwardStencilRef"));
                 }
             }
             finally { Object.DestroyImmediate(material); Shader.globalRenderPipeline = previousShaderTag; }
         }
+
+        [TestCase("HDRP/Lit")] [TestCase("HDRP/Unlit")]
+        public void DeferredRoutingRemainsExclusiveAcrossMaterialChanges(string shaderName)
+        {
+            string previousShaderTag = Shader.globalRenderPipeline;
+            Shader.globalRenderPipeline = HDRenderPipeline.k_ShaderTagName;
+            var material = new Material(Shader.Find(shaderName));
+            try
+            {
+                Assert.GreaterOrEqual(material.FindPass("MobileForwardOnlyExtended"), 0);
+                bool lit = shaderName == "HDRP/Lit";
+                for (int surface = 0; surface < 2; surface++)
+                for (int coat = 0; coat < 2; coat++)
+                for (int id = 0; id < 6; id++)
+                {
+                    material.SetFloat("_SurfaceType", surface);
+                    if (lit)
+                    {
+                        material.SetFloat("_MaterialID", id);
+                        material.SetFloat("_CoatMask", coat);
+                    }
+                    HDShaderUtils.ResetMaterialKeywords(material);
+                    bool compact = lit && id == 1 && coat == 0;
+                    bool extended = lit && (id == 1 || id == 4);
+                    Assert.AreEqual(!lit || (surface == 0 && !compact), material.GetShaderPassEnabled("MobileForwardOnly"));
+                    Assert.AreEqual(!lit || (surface == 0 && !extended), material.GetShaderPassEnabled("MobileForwardOnlyExtended"));
+                    if (lit)
+                    {
+                        Assert.AreEqual(surface == 0 && compact, material.GetShaderPassEnabled("MobileGBuffer"));
+                        Assert.AreEqual(surface == 0 && extended, material.GetShaderPassEnabled("MobileGBufferExtended"));
+                    }
+                }
+            }
+            finally { Object.DestroyImmediate(material); Shader.globalRenderPipeline = previousShaderTag; }
+        }
+
+        [Test]
+        public void DeferredLightContributionUsesRgbWithoutAnIntensityThreshold()
+        {
+            Assert.IsFalse(MobileRenderPipelineBackend.HasDeferredLightContribution(new Vector4(0, 0, 0, 1)));
+            Assert.IsTrue(MobileRenderPipelineBackend.HasDeferredLightContribution(new Vector4(1e-20f, 0, 0, 0)));
+            Assert.IsTrue(MobileRenderPipelineBackend.HasDeferredLightContribution(new Vector4(0, 1e-20f, 0, 0)));
+            Assert.IsTrue(MobileRenderPipelineBackend.HasDeferredLightContribution(new Vector4(0, 0, 1e-20f, 0)));
+        }
     }
 
     public partial class MobileImageTests
     {
+        MobileRenderPipelineBackend DeferredBackend => (MobileRenderPipelineBackend)typeof(HDRenderPipeline)
+            .GetField("m_MobileBackend", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            .GetValue(RenderPipelineManager.currentPipeline);
+
+        [TestCase(false)] [TestCase(true)]
+        public void DeferredSkipsZeroLightsWithoutLosingEmissionOrFog(bool native)
+        {
+            if (native && SystemInfo.graphicsDeviceType != GraphicsDeviceType.Vulkan) Assert.Ignore("Native requires Vulkan");
+            var material = Material(true, Color.gray);
+            material.SetColor("_EmissiveColor", new Color(0.3f, 0.2f, 0.1f));
+            HDShaderUtils.ResetMaterialKeywords(material); Quad(material);
+            m_Asset.mobileSettings.fog = true; m_Asset.mobileSettings.fogStart = 0; m_Asset.mobileSettings.fogEnd = 10;
+            m_Sun.color = Color.black;
+            UseDeferred();
+            m_Asset.mobileSettings.deferredExecution = native ? MobileDeferredExecution.NativeRenderPass : MobileDeferredExecution.Sampled;
+            var blackSun = Capture();
+            Assert.AreEqual(0, DeferredBackend.lastCameraDeferredLightingDraws);
+            m_Sun.enabled = false;
+            Same(blackSun, Capture());
+            Assert.AreEqual(0, DeferredBackend.lastCameraDeferredLightingDraws);
+            Assert.Greater(Center(blackSun).r, 0.01f);
+        }
+
+        [TestCase(false)] [TestCase(true)]
+        public void DeferredSkippedLocalLightsPreservePackedIndices(bool native)
+        {
+            if (native && SystemInfo.graphicsDeviceType != GraphicsDeviceType.Vulkan) Assert.Ignore("Native requires Vulkan");
+            m_Sun.intensity = 0; Quad(Material(true, Color.gray));
+            var lights = new Light[3];
+            for (int i = 0; i < lights.Length; i++)
+            {
+                var light = MakeObject("Packed local " + i).AddComponent<Light>(); lights[i] = light;
+                light.type = i == 1 ? LightType.Spot : LightType.Point;
+                light.cullingMask = m_Camera.cullingMask; light.range = 5; light.intensity = 2;
+                light.spotAngle = 90; light.innerSpotAngle = 60;
+                light.transform.position = new Vector3(0, 0, -1);
+            }
+            for (int active = 0; active < lights.Length; active++)
+            {
+                for (int i = 0; i < lights.Length; i++) lights[i].color = i == active ? Color.white : Color.black;
+                m_Asset.mobileSettings.renderingPath = MobileRenderingPath.Forward;
+                var forward = Center(Capture()); Assert.Greater(forward.r, 0.01f);
+                UseDeferred();
+                m_Asset.mobileSettings.deferredExecution = native ? MobileDeferredExecution.NativeRenderPass : MobileDeferredExecution.Sampled;
+                CompactNear(forward, Center(Capture()), "Skipped lights must not renumber the packed buffers");
+                Assert.AreEqual(1, DeferredBackend.lastCameraDeferredLightingDraws);
+            }
+            foreach (var light in lights) light.color = Color.black;
+            Capture(); Assert.AreEqual(0, DeferredBackend.lastCameraDeferredLightingDraws);
+        }
+
+        [TestCase(false, false)] [TestCase(true, false)]
+        [TestCase(false, true)] [TestCase(true, true)]
+        public void DeferredUsesOnlyCameraMaterialCombinations(bool extended, bool instanced)
+        {
+            m_Asset.mobileSettings.extendedLitMaterials = extended;
+            var first = Material(true, Color.gray);
+            var renderer = Quad(first);
+            var unused = Material(true, Color.gray);
+            unused.SetFloat("_MobileReceiveShadows", 0); unused.SetFloat("_MobileSpecularHighlights", 0);
+            HDShaderUtils.ResetMaterialKeywords(unused);
+            var excluded = Quad(unused); excluded.gameObject.layer = 29;
+            if (instanced)
+            {
+                InstanceGroup(renderer); m_Asset.mobileSettings.instanceMode = MobileInstanceMode.CpuInstanced;
+            }
+            UseDeferred(); Capture();
+            Assert.AreEqual(1, DeferredBackend.lastCameraDeferredVariantMask);
+            Assert.AreEqual(1, DeferredBackend.lastCameraDeferredLightingDraws);
+            for (int flags = 0; flags < 4; flags++)
+            {
+                first.SetFloat("_MaterialID", extended ? 4 : 1);
+                first.SetFloat("_MobileReceiveShadows", (flags & 1) == 0 ? 1 : 0);
+                first.SetFloat("_MobileSpecularHighlights", (flags & 2) == 0 ? 1 : 0);
+                first.SetFloat("_MobileUserStencilBit", 1);
+                HDShaderUtils.ResetMaterialKeywords(first);
+                Capture();
+                Assert.AreEqual(1 << (flags + (extended ? 4 : 0)), DeferredBackend.lastCameraDeferredVariantMask);
+                Assert.AreEqual(1, DeferredBackend.lastCameraDeferredLightingDraws);
+            }
+            renderer.sharedMaterial = unused;
+            if (instanced) m_Asset.mobileSettings.instanceMode = MobileInstanceMode.Disabled;
+            Capture();
+            Assert.AreEqual(8, DeferredBackend.lastCameraDeferredVariantMask, "Same-frame material reassignment");
+            excluded.sharedMaterial = first; excluded.gameObject.layer = 30;
+            Capture();
+            Assert.AreEqual(8 | (1 << (extended ? 7 : 3)), DeferredBackend.lastCameraDeferredVariantMask);
+            Assert.AreEqual(extended ? 2 : 1, DeferredBackend.lastCameraDeferredLightingDraws);
+            excluded.gameObject.layer = 30; excluded.transform.position = new Vector3(1000, 0, 0);
+            renderer.enabled = false; Capture();
+            Assert.AreEqual(0, DeferredBackend.lastCameraDeferredLightingDraws, "Disabled/out-of-frustum geometry has no lighting draws");
+        }
+
+        [Test]
+        public void DeferredMaterialCensusMatchesNormalSceneCandidates()
+        {
+            // Use the runner's ordinary scene; an additive scene cannot be opened
+            // while its untitled test scene is unsaved.
+            var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+            var previousScene = m_Camera.scene;
+            Renderer renderer = null, added = null;
+            try
+            {
+                var first = Material(true, Color.gray); renderer = Quad(first);
+                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(renderer.gameObject, scene);
+                renderer.gameObject.layer = 29; m_Camera.cullingMask = 1 << 29;
+                m_Camera.scene = default;
+                var usage = new MobileDeferredMaterialUsage();
+                Assert.AreEqual(1, usage.Gather(m_Camera, false));
+                first.SetFloat("_MobileSpecularHighlights", 0); HDShaderUtils.ResetMaterialKeywords(first);
+                Assert.AreEqual(4, usage.Gather(m_Camera, false));
+                var second = Material(true, Color.gray); added = Quad(second);
+                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(added.gameObject, scene);
+                added.gameObject.layer = 29;
+                Assert.AreEqual(5, usage.Gather(m_Camera, false), "Same-frame spawned renderer");
+                renderer.enabled = false; added.enabled = false;
+                Assert.AreEqual(0, usage.Gather(m_Camera, false), "Loaded but unused materials must not submit lighting");
+            }
+            finally
+            {
+                m_Camera.scene = previousScene;
+                if (renderer != null) UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(renderer.gameObject, m_Scene);
+                if (added != null) UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(added.gameObject, m_Scene);
+            }
+        }
+
         [TestCase(false)] [TestCase(true)]
         public void DeferredFallbackOccludesGBufferAndClipsBeforeFog(bool extraRT)
         {
@@ -135,6 +306,10 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             texture.SetPixels(new[] { Color.white, Color.clear, Color.white, Color.clear }); texture.Apply(); texture.filterMode = FilterMode.Point;
             fallback.SetTexture("_BaseColorMap", texture); HDShaderUtils.ResetMaterialKeywords(fallback);
             var front = Quad(fallback, -0.2f); front.transform.localScale = Vector3.one * 0.75f;
+            // Two newly prepared variants of one shader can transiently share
+            // stale SRP material data on their first Editor draw. Establish the
+            // prepared Forward baseline before comparing the Deferred paths.
+            Capture();
             var forward = Capture(); UseDeferred(); var sampled = Capture();
             for (int i = 0; i < forward.Length; i++) CompactNear(forward[i], sampled[i], "Mixed material depth/clip/fog pixel " + i);
             if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Vulkan)

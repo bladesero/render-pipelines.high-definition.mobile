@@ -50,8 +50,8 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             RenderSettings.defaultReflectionMode = DefaultReflectionMode.Custom;
             RenderSettings.customReflectionTexture = CoreUtils.blackCubeTexture;
             m_Camera = MakeCamera(Width, Height);
-            var postDefaults = CameraProfile(-1000);
-            postDefaults.Add<MobilePostProcessing>().fxaa.Override(false);
+            CameraProfile(-1000);
+            m_Camera.GetComponent<HDAdditionalCameraData>().antialiasing = HDAdditionalCameraData.AntialiasingMode.None;
             var sun = MakeObject("Image test sun"); m_Sun = sun.AddComponent<Light>();
             m_Sun.type = LightType.Directional; m_Sun.intensity = 0.5f; m_Sun.shadows = LightShadows.None;
             m_Sun.cullingMask = 1 << 30; RenderSettings.sun = m_Sun;
@@ -99,6 +99,33 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
         Color[] Capture(Camera camera = null)
         {
             camera = camera != null ? camera : m_Camera;
+            // EditMode can register a newly selected variant while SRP Batcher
+            // is already preparing its material buffer. Compile before entering
+            // Camera.Render so image oracles test the prepared shader. This does
+            // not warm a rendered frame or relax any pixel comparisons.
+            if (m_Asset.rendererMode == HDRendererMode.Mobile)
+            {
+                bool extendedKeyword = Shader.IsKeywordEnabled("MOBILE_EXTENDED_LIT");
+                try
+                {
+                    if (m_Asset.mobileSettings.extendedLitMaterials) Shader.EnableKeyword("MOBILE_EXTENDED_LIT");
+                    else Shader.DisableKeyword("MOBILE_EXTENDED_LIT");
+                    foreach (var owned in m_Owned)
+                    {
+                        if (!(owned is Material material)) continue;
+                        foreach (string passName in s_MobileImagePasses)
+                        {
+                            int pass = material.FindPass(passName);
+                            if (pass >= 0) ShaderUtil.CompilePass(material, pass, true);
+                        }
+                    }
+                }
+                finally
+                {
+                    if (extendedKeyword) Shader.EnableKeyword("MOBILE_EXTENDED_LIT");
+                    else Shader.DisableKeyword("MOBILE_EXTENDED_LIT");
+                }
+            }
             camera.Render();
             var target = camera.targetTexture;
             var previous = RenderTexture.active;
@@ -113,6 +140,8 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             }
             finally { RenderTexture.active = previous; Object.DestroyImmediate(read); }
         }
+        static readonly string[] s_MobileImagePasses =
+            { "MobileForward", "MobileForwardOnly", "MobileForwardOnlyExtended", "MobileGBuffer", "MobileGBufferExtended", "ShadowCaster" };
         static void Near(Color expected, Color actual, string message = "")
         {
             for (int c = 0; c < 3; c++) Assert.That(actual[c], Is.EqualTo(expected[c]).Within(0.002f * Mathf.Max(1, Mathf.Abs(expected[c]))), message + " channel " + c);
@@ -212,16 +241,16 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             renderer.transform.rotation = Quaternion.Euler(0, 180, 0); Same(reference, Capture());
             material.enableInstancing = true;
             var other = Quad(material); other.transform.position = new Vector3(0.7f, 0, 0);
-            bool batcher = GraphicsSettings.useScriptableRenderPipelineBatching;
+            bool batcher = m_Asset.enableSRPBatcher;
             try
             {
                 // SRP Batcher takes precedence over GPU instancing. Disable it so
                 // this comparison actually exercises the INSTANCING_ON variant.
-                GraphicsSettings.useScriptableRenderPipelineBatching = false;
+                m_Asset.enableSRPBatcher = false;
                 var instanced = Capture();
                 material.enableInstancing = false; Same(instanced, Capture());
             }
-            finally { GraphicsSettings.useScriptableRenderPipelineBatching = batcher; }
+            finally { m_Asset.enableSRPBatcher = batcher; }
         }
 
         [Test]
@@ -320,9 +349,9 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             yield return null; // Native reflection-probe spatial registration runs in the player loop.
             var first = Capture();
             TestContext.WriteLine("First reflection capture: count=" + Shader.GetGlobalInt("_MobileReflectionCount16") + ", HDRP=" + Shader.GetGlobalInt("_MobileReflectionHasHDRPProbes") + ", center=" + Center(first));
-            GraphicsSettings.useScriptableRenderPipelineBatching = false;
+            m_Asset.enableSRPBatcher = false;
             Same(first, Capture());
-            GraphicsSettings.useScriptableRenderPipelineBatching = true;
+            m_Asset.enableSRPBatcher = true;
             Assert.Greater(Center(first).r, Center(first).g + 0.1f, "First camera: " + Center(first));
             var other = MakeCamera(Width, Height); other.transform.position = new Vector3(5, 0, -3);
             var second = Capture(other); Assert.Greater(Center(second).g, Center(second).r + 0.1f, "Second camera: " + Center(second));
@@ -388,7 +417,7 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
 
         [TestCase(false)]
         [TestCase(true)]
-        public void PostProcessingIsControlledByVolumesWithoutAssetSwitches(bool deferred)
+        public void PostProcessingUsesVolumesAndCameraAntialiasing(bool deferred)
         {
             Assert.IsNull(typeof(MobileRenderSettings).GetField("bloom"));
             Assert.IsNull(typeof(MobileRenderSettings).GetField("fxaa"));
@@ -399,6 +428,7 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             var profile = CameraProfile();
             var bloom = profile.Add<Bloom>(); bloom.intensity.Override(0);
             var post = profile.Add<MobilePostProcessing>(); post.fxaa.Override(false);
+            var cameraData = m_Camera.GetComponent<HDAdditionalCameraData>();
             var material = Material(false, Color.gray);
             material.SetColor("_EmissiveColor", Color.white * 8);
             var quad = Quad(material); quad.transform.localScale = Vector3.one * 0.4f;
@@ -415,14 +445,19 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             bloom.intensity.Override(0);
             Same(baseline, Capture());
             post.fxaa.Override(true);
-            Assert.Greater(Difference(baseline, Capture()), 0.1f, "FXAA Volume must affect silhouette edges.");
+            Same(baseline, Capture()); // Legacy Volume cannot enable camera AA.
+            cameraData.antialiasing = HDAdditionalCameraData.AntialiasingMode.FastApproximateAntialiasing;
+            var antialiased = Capture();
+            Assert.Greater(Difference(baseline, antialiased), 0.1f, "Camera FXAA must affect silhouette edges.");
             post.fxaa.Override(false);
+            Same(antialiased, Capture()); // Legacy Volume cannot disable camera AA.
+            cameraData.antialiasing = HDAdditionalCameraData.AntialiasingMode.None;
             Same(baseline, Capture());
             bloom.intensity.Override(1);
-            post.fxaa.Override(true);
+            cameraData.antialiasing = HDAdditionalCameraData.AntialiasingMode.FastApproximateAntialiasing;
             foreach (var root in m_Scene.GetRootGameObjects())
                 if (root.TryGetComponent<Volume>(out var volume) && volume.sharedProfile == profile) volume.weight = 0;
-            Same(baseline, Capture());
+            Same(antialiased, Capture()); // Volume weight does not change camera AA.
         }
 
         [Test]

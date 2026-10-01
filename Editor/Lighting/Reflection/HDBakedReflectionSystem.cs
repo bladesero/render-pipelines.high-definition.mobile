@@ -134,7 +134,7 @@ namespace UnityEditor.Rendering.HighDefinition
             HashUtilities.AppendHash(ref skySettingsHash, ref allProbeDependencyHash);
             if (MobileReflectionBaking.active)
             {
-                var mobileHash = Hash128.Compute("MobileReflectionBake-v1:" + JsonUtility.ToJson(hdPipeline.asset.mobileSettings));
+                var mobileHash = Hash128.Compute("MobileReflectionBake-v2:" + JsonUtility.ToJson(hdPipeline.asset.mobileSettings));
                 HashUtilities.AppendHash(ref mobileHash, ref allProbeDependencyHash);
             }
 

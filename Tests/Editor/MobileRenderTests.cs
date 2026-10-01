@@ -122,6 +122,32 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             }
         }
 
+        [TestCase(0u)]
+        [TestCase(42u)]
+        public void MobilePipelineInitializesNewRendererLayerAndRestoresDefault(uint originalMask)
+        {
+            var asset = ScriptableObject.CreateInstance<HDRenderPipelineAsset>();
+            asset.rendererMode = HDRendererMode.Mobile;
+            GraphicsSettings.defaultRenderingLayerMask = originalMask;
+            HDRenderPipeline pipeline = null;
+            GameObject primitive = null;
+            try
+            {
+                pipeline = new HDRenderPipeline(asset);
+                primitive = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                Assert.AreEqual((uint)ShaderVariablesGlobal.DefaultRenderingLayerMask, primitive.GetComponent<Renderer>().renderingLayerMask);
+            }
+            finally
+            {
+                if (pipeline != null)
+                    typeof(HDRenderPipeline).GetMethod("Dispose", BindingFlags.Instance | BindingFlags.NonPublic, null, new[] { typeof(bool) }, null)
+                        .Invoke(pipeline, new object[] { true });
+                Object.DestroyImmediate(primitive);
+                Object.DestroyImmediate(asset);
+            }
+            Assert.AreEqual(originalMask, GraphicsSettings.defaultRenderingLayerMask);
+        }
+
         [Test]
         public void DisposingPreviousMobileBackendDoesNotResetReplacement()
         {
@@ -129,14 +155,19 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             string tag = Shader.globalRenderPipeline;
             bool keyword = Shader.IsKeywordEnabled("HDRP_MOBILE_RENDERER");
             MobileRenderPipelineBackend first = null, second = null;
+            GraphicsSettings.defaultRenderingLayerMask = 42u;
             try
             {
                 first = new MobileRenderPipelineBackend(asset);
                 second = new MobileRenderPipelineBackend(asset);
                 first.Dispose();
+                Assert.AreEqual((uint)ShaderVariablesGlobal.DefaultRenderingLayerMask, GraphicsSettings.defaultRenderingLayerMask);
                 Assert.IsTrue(Shader.IsKeywordEnabled("HDRP_MOBILE_RENDERER"));
                 Assert.AreEqual("HDRenderPipeline", Shader.globalRenderPipeline);
                 second.Dispose();
+                Assert.AreEqual(42u, GraphicsSettings.defaultRenderingLayerMask);
+                second.Dispose();
+                Assert.AreEqual(42u, GraphicsSettings.defaultRenderingLayerMask);
                 Assert.AreEqual(keyword, Shader.IsKeywordEnabled("HDRP_MOBILE_RENDERER"));
                 Assert.AreEqual(tag, Shader.globalRenderPipeline);
             }

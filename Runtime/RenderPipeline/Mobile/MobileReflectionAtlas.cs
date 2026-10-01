@@ -35,14 +35,17 @@ namespace UnityEngine.Rendering.HighDefinition
                     probe.texture.dimension != TextureDimension.Cube || probe.weight <= 0) continue;
                 m_Visible.Add(probe);
             }
-            // Stable ordering: important probes first, then the nearest. Equal
-            // importance is blended as a group in the shader, independent of order.
+            // Match Desktop HDRP's influence-volume hierarchy: local probes consume
+            // reflection weight before larger probes. Legacy importance/distance
+            // ordering lets bright exterior probes override dark interior probes.
             m_Visible.Sort((a, b) =>
             {
-                int importance = b.GetComponent<ReflectionProbe>().importance.CompareTo(a.GetComponent<ReflectionProbe>().importance);
-                if (importance != 0) return importance;
-                int distance = (a.transform.position - camera.transform.position).sqrMagnitude.CompareTo((b.transform.position - camera.transform.position).sqrMagnitude);
-                return distance != 0 ? distance : a.GetInstanceID().CompareTo(b.GetInstanceID());
+                int volume = ProbeVolumeKey(a).CompareTo(ProbeVolumeKey(b));
+                if (volume != 0) return volume;
+                var shapeA = a.influenceVolume.shape == InfluenceShape.Sphere ? LightVolumeType.Sphere : LightVolumeType.Box;
+                var shapeB = b.influenceVolume.shape == InfluenceShape.Sphere ? LightVolumeType.Sphere : LightVolumeType.Box;
+                int shape = shapeA.CompareTo(shapeB);
+                return shape != 0 ? shape : a.GetInstanceID().CompareTo(b.GetInstanceID());
             });
             int count = Mathf.Min(Capacity, m_Visible.Count);
             cmd.SetGlobalInt("_MobileReflectionHasHDRPProbes", hasHDRPProbes ? 1 : 0);
@@ -102,7 +105,7 @@ namespace UnityEngine.Rendering.HighDefinition
                 var proxy = probe.proxyExtents;
                 bool sphereProxy = probe.proxyVolume != null ? probe.proxyVolume.proxyVolume.shape == ProxyShape.Sphere : influence.shape == InfluenceShape.Sphere;
                 m_ProxyExtents[i] = new Vector4(proxy.x, proxy.y, proxy.z, probe.isProjectionInfinite ? -1 : sphereProxy ? 1 : 0);
-                m_Params[i] = new Vector4(Mathf.Clamp01(probe.weight), probe.GetComponent<ReflectionProbe>().importance, 0, 0);
+                m_Params[i] = new Vector4(Mathf.Clamp01(probe.weight), 0, 0, 0);
             }
             cmd.SetGlobalTexture("_MobileReflectionAtlas", m_Atlas);
             cmd.SetGlobalVector("_MobileReflectionAtlasCubeData", new Vector4((float)TexelPadding / size, (float)TexelPadding / size, MipPadding, 0));
@@ -115,6 +118,15 @@ namespace UnityEngine.Rendering.HighDefinition
             cmd.SetGlobalVectorArray("_MobileReflectionParams16", m_Params);
             cmd.SetGlobalMatrixArray("_MobileReflectionWorldToInfluence16", m_WorldToInfluence);
             cmd.SetGlobalMatrixArray("_MobileReflectionWorldToProxy16", m_WorldToProxy);
+        }
+
+        static uint ProbeVolumeKey(HDAdditionalReflectionData probe)
+        {
+            // Same quantization as LightLoop.CalculateProbeLogVolume. Use native
+            // culling bounds, including rotation, as Desktop's visible probes do.
+            var extents = probe.GetComponent<ReflectionProbe>().bounds.extents;
+            float volume = 8f * extents.x * extents.y * extents.z;
+            return (uint)Mathf.Clamp(Mathf.Log(1 + volume, 1.05f) * 1000, 0, 1048575);
         }
 
         public void Dispose()

@@ -202,5 +202,44 @@ namespace UnityEditor.Rendering.HighDefinition.Tests
             var sphereInside = Center(Capture());
             Assert.Greater(sphereInside.r, sphereOutside.r + .1f);
         }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void HDReflectionNestedDarkProbeOverridesBrightOuterProbe(bool deferred)
+        {
+            m_Sun.enabled = false;
+            m_Asset.mobileSettings.renderingPath = deferred ? MobileRenderingPath.Deferred : MobileRenderingPath.Forward;
+            m_Asset.mobileSettings.deferredExecution = MobileDeferredExecution.Sampled;
+            var material = Material(true, Color.white);
+            material.SetFloat("_Metallic", 1); material.SetFloat("_Smoothness", .8f);
+            Quad(material);
+            var inner = AtlasProbe(ReflectionCube(Color.white * 4), ProbeSettings.Mode.Custom);
+            inner.influenceVolume.boxSize = Vector3.one * 4;
+            var baseline = Center(Capture()).r;
+            Assert.Greater(baseline, .1f);
+
+            var outer = AtlasProbe(ReflectionCube(Color.white * 1024), ProbeSettings.Mode.Custom);
+            outer.influenceVolume.boxSize = Vector3.one * 20;
+            outer.PrepareCulling();
+            // Desktop HDRP sorts by influence volume, not the legacy importance field.
+            foreach (int importance in new[] { 1, 100 })
+            {
+                outer.GetComponent<ReflectionProbe>().importance = importance;
+                Assert.That(Center(Capture()).r, Is.EqualTo(baseline).Within(baseline * .03f),
+                    "A fully weighted dark interior probe must exclude the bright exterior probe, importance=" + importance);
+            }
+
+            var middle = AtlasProbe(ReflectionCube(Color.white * 16), ProbeSettings.Mode.Custom);
+            middle.influenceVolume.boxSize = Vector3.one * 8;
+            middle.PrepareCulling();
+            inner.weight = .25f; middle.weight = .5f;
+            // Desktop consumes weights additively: .25 inner + .5 middle + .25 outer.
+            float expected = baseline * (.25f * 4 + .5f * 16 + .25f * 1024) / 4;
+            Assert.That(Center(Capture()).r, Is.EqualTo(expected).Within(expected * .03f),
+                "Only the unused hierarchy weight may reach larger probes.");
+            inner.weight = 1;
+            inner.SetTexture(ProbeSettings.Mode.Custom, ReflectionCube(Color.black));
+            Assert.Less(Center(Capture()).r, .001f, "A black interior probe must still occlude exterior reflection.");
+        }
     }
 }

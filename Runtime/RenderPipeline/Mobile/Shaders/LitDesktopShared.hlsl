@@ -5,7 +5,9 @@
     // Variant
     //-------------------------------------------------------------------------------------
 
+    #if !defined(HDRP_SHADOW_ALPHA_VARIANTS)
     #pragma shader_feature_local _ALPHATEST_ON
+    #endif
     #pragma shader_feature_local_fragment _DEPTHOFFSET_ON
     #pragma shader_feature_local _DOUBLESIDED_ON
     #pragma shader_feature_local _ _VERTEX_DISPLACEMENT _PIXEL_DISPLACEMENT
@@ -146,4 +148,3 @@
     // LitData.hlsl should be responsible for preparing shading parameters.
     // LitShading.hlsl implements the light loop API.
     // LitData.hlsl is included here, LitShading.hlsl is included below for shading passes only.
-

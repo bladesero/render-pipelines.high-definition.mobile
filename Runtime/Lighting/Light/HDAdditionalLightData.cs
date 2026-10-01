@@ -2048,7 +2048,10 @@ namespace UnityEngine.Rendering.HighDefinition
         public void RequestShadowMapRendering()
         {
             if (shadowUpdateMode == ShadowUpdateMode.OnDemand)
+            {
+                unchecked { ++mobileShadowRequestVersion; }
                 HDShadowManager.cachedShadowManager.ScheduleShadowUpdate(this);
+            }
         }
 
         /// <summary>
@@ -2060,8 +2063,13 @@ namespace UnityEngine.Rendering.HighDefinition
         public void RequestSubShadowMapRendering(int shadowIndex)
         {
             if (shadowUpdateMode == ShadowUpdateMode.OnDemand)
+            {
+                unchecked { ++mobileShadowRequestVersion; }
                 HDShadowManager.cachedShadowManager.ScheduleShadowUpdate(this, shadowIndex);
+            }
         }
+
+        internal uint mobileShadowRequestVersion;
 
         internal bool ShadowIsUpdatedEveryFrame()
         {
